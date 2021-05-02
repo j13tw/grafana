@@ -69,7 +69,7 @@ export class Registry<T extends RegistryItem> {
   get(id: string): T {
     const v = this.getIfExists(id);
     if (!v) {
-      throw new Error('Undefined: ' + id);
+      throw new Error(`"${id}" not found in: ${this.list().map((v) => v.id)}`);
     }
     return v;
   }
@@ -84,10 +84,10 @@ export class Registry<T extends RegistryItem> {
       current: [],
     } as RegistrySelectInfo;
 
-    const currentIds: any = {};
+    const currentOptions: Record<string, SelectableValue<string>> = {};
     if (current) {
       for (const id of current) {
-        currentIds[id] = true;
+        currentOptions[id] = {};
       }
     }
 
@@ -106,10 +106,16 @@ export class Registry<T extends RegistryItem> {
       };
 
       select.options.push(option);
-      if (currentIds[ext.id]) {
-        select.current.push(option);
+      if (currentOptions[ext.id]) {
+        currentOptions[ext.id] = option;
       }
     }
+
+    if (current) {
+      // this makes sure we preserve the order of ids
+      select.current = Object.values(currentOptions);
+    }
+
     return select;
   }
 

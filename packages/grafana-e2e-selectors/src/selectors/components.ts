@@ -1,9 +1,11 @@
-import { Pages } from './pages';
-
 export const Components = {
+  TimePicker: {
+    openButton: 'TimePicker Open Button',
+  },
   DataSource: {
     TestData: {
       QueryTab: {
+        scenarioSelectContainer: 'Test Data Query scenario select container',
         scenarioSelect: 'Test Data Query scenario select',
         max: 'TestData max',
         min: 'TestData min',
@@ -14,10 +16,17 @@ export const Components = {
       },
     },
   },
+  Menu: {
+    MenuComponent: (title: string) => `${title} menu`,
+    MenuGroup: (title: string) => `${title} menu group`,
+    MenuItem: (title: string) => `${title} menu item`,
+  },
   Panels: {
     Panel: {
       title: (title: string) => `Panel header title item ${title}`,
       headerItems: (item: string) => `Panel header item ${item}`,
+      containerByTitle: (title: string) => `Panel container title ${title}`,
+      headerCornerInfo: (mode: string) => `Panel header ${mode}`,
     },
     Visualization: {
       Graph: {
@@ -28,6 +37,15 @@ export const Components = {
           legendItemAlias: (name: string) => `gpl alias ${name}`,
           showLegendSwitch: 'gpl show legend',
         },
+        xAxis: {
+          labels: () => 'div.flot-x-axis > div.flot-tick-label',
+        },
+      },
+      BarGauge: {
+        value: 'Bar gauge value',
+      },
+      Text: {
+        container: () => '.markdown-html',
       },
     },
   },
@@ -46,14 +64,15 @@ export const Components = {
     },
     OptionsPane: {
       content: 'Panel editor option pane content',
-      close: Pages.Dashboard.Toolbar.toolbarItems('Close options pane'),
-      open: Pages.Dashboard.Toolbar.toolbarItems('Open options pane'),
       select: 'Panel editor option pane select',
+      fieldLabel: (type: string) => `${type} field property editor`,
     },
     // not sure about the naming *DataPane*
     DataPane: {
       content: 'Panel editor data pane content',
     },
+    toggleVizPicker: 'toggle-viz-picker',
+    toggleVizOptions: 'toggle-viz-options',
   },
   PanelInspector: {
     Data: {
@@ -75,6 +94,9 @@ export const Components = {
     title: (title: string) => `Tab ${title}`,
     active: () => '[class*="-activeTabStyle"]',
   },
+  RefreshPicker: {
+    runButton: 'RefreshPicker run button',
+  },
   QueryTab: {
     content: 'Query editor tab content',
     queryInspectorButton: 'Query inspector button',
@@ -90,8 +112,26 @@ export const Components = {
   AlertTab: {
     content: 'Alert editor tab content',
   },
+  Alert: {
+    alert: (severity: string) => `Alert ${severity}`,
+  },
   TransformTab: {
     content: 'Transform editor tab content',
+    newTransform: (name: string) => `New transform ${name}`,
+    transformationEditor: (name: string) => `Transformation editor ${name}`,
+    transformationEditorDebugger: (name: string) => `Transformation editor debugger ${name}`,
+  },
+  Transforms: {
+    card: (name: string) => `New transform ${name}`,
+    Reduce: {
+      modeLabel: 'Transform mode label',
+      calculationsLabel: 'Transform calculations label',
+    },
+    searchInput: 'search transformations',
+  },
+  PageToolbar: {
+    container: () => '.page-toolbar',
+    item: (tooltip: string) => `Page toolbar button ${tooltip}`,
   },
   QueryEditorToolbarItem: {
     button: (title: string) => `QueryEditor toolbar item button ${title}`,
@@ -100,7 +140,7 @@ export const Components = {
     backArrow: 'Go Back button',
   },
   OptionsGroup: {
-    toggle: (title: string) => `Options group ${title}`,
+    toggle: (title?: string) => (title ? `Options group ${title}` : 'Options group'),
   },
   PluginVisualization: {
     item: (title: string) => `Plugin visualization item ${title}`,
@@ -109,6 +149,7 @@ export const Components = {
   Select: {
     option: 'Select option',
     input: () => 'input[id*="react-select-"]',
+    singleValue: () => 'div[class*="-singleValue"]',
   },
   FieldConfigEditor: {
     content: 'Field config editor content',
@@ -118,5 +159,40 @@ export const Components = {
   },
   FolderPicker: {
     container: 'Folder picker select container',
+  },
+  DataSourcePicker: {
+    container: 'Data source picker select container',
+  },
+  TimeZonePicker: {
+    container: 'Time zone picker select container',
+  },
+  TraceViewer: {
+    spanBar: () => '[data-test-id="SpanBar--wrapper"]',
+  },
+  QueryField: { container: 'Query field' },
+  ValuePicker: {
+    button: 'Value picker add button',
+    select: (name: string) => `Value picker select ${name}`,
+  },
+  Search: {
+    section: 'Search section',
+    items: 'Search items',
+  },
+  DashboardLinks: {
+    container: 'Dashboard link container',
+    dropDown: 'Dashboard link dropdown',
+    link: 'Dashboard link',
+  },
+  LoadingIndicator: {
+    icon: 'Loading indicator',
+  },
+  CallToActionCard: {
+    button: (name: string) => `Call to action button ${name}`,
+  },
+  DataLinksContextMenu: {
+    singleLink: 'Data link',
+  },
+  CodeEditor: {
+    container: 'Code editor container',
   },
 };

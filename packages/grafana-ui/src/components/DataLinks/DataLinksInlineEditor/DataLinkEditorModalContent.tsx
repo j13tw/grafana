@@ -8,17 +8,17 @@ interface DataLinkEditorModalContentProps {
   link: DataLink;
   index: number;
   data: DataFrame[];
-  suggestions: VariableSuggestion[];
-  onChange: (index: number, ink: DataLink) => void;
-  onClose: () => void;
+  getSuggestions: () => VariableSuggestion[];
+  onSave: (index: number, ink: DataLink) => void;
+  onCancel: (index: number) => void;
 }
 
 export const DataLinkEditorModalContent: FC<DataLinkEditorModalContentProps> = ({
   link,
   index,
-  suggestions,
-  onChange,
-  onClose,
+  getSuggestions,
+  onSave,
+  onCancel,
 }) => {
   const [dirtyLink, setDirtyLink] = useState(link);
   return (
@@ -27,7 +27,7 @@ export const DataLinkEditorModalContent: FC<DataLinkEditorModalContentProps> = (
         value={dirtyLink}
         index={index}
         isLast={false}
-        suggestions={suggestions}
+        suggestions={getSuggestions()}
         onChange={(index, link) => {
           setDirtyLink(link);
         }}
@@ -35,13 +35,12 @@ export const DataLinkEditorModalContent: FC<DataLinkEditorModalContentProps> = (
       <HorizontalGroup>
         <Button
           onClick={() => {
-            onChange(index, dirtyLink);
-            onClose();
+            onSave(index, dirtyLink);
           }}
         >
           Save
         </Button>
-        <Button variant="secondary" onClick={() => onClose()}>
+        <Button variant="secondary" onClick={() => onCancel(index)}>
           Cancel
         </Button>
       </HorizontalGroup>

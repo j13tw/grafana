@@ -1,77 +1,53 @@
 import React from 'react';
-import { css, cx } from 'emotion';
-import { GrafanaTheme } from '@grafana/data';
-import { stylesFactory, useTheme } from '../../themes';
+import { css, cx } from '@emotion/css';
+import { GrafanaThemeV2 } from '@grafana/data';
+import { Icon } from '../Icon/Icon';
+import { Alert, AlertVariant } from '../Alert/Alert';
+import { stylesFactory, useStyles2 } from '../../themes';
 
-export interface Props extends React.HTMLAttributes<HTMLDivElement> {
-  header?: string | JSX.Element;
-  footer?: string | JSX.Element;
+export interface InfoBoxProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 'title'> {
+  children: React.ReactNode;
+  /** Title of the box */
+  title?: string | JSX.Element;
+  /** Url of the read more link */
+  url?: string;
+  /** Text of the read more link */
+  urlTitle?: string;
+  /** Indicates whether or not box should be rendered with Grafana branding background */
+  branded?: boolean;
+  /** Color variant of the box */
+  severity?: AlertVariant;
+  /** Call back to be performed when box is dismissed */
+  onDismiss?: () => void;
 }
 
-/**
- * This is a simple InfoBox component, the api is not considered stable yet and will likely see breaking changes
- * in future minor releases.
- * @Alpha
- */
+/** @deprecated use Alert with severity info */
 export const InfoBox = React.memo(
-  React.forwardRef<HTMLDivElement, Props>(({ header, footer, className, children, ...otherProps }, ref) => {
-    const theme = useTheme();
-    const css = getInfoBoxStyles(theme);
+  React.forwardRef<HTMLDivElement, InfoBoxProps>(
+    ({ title, className, children, branded, url, urlTitle, onDismiss, severity = 'info', ...otherProps }, ref) => {
+      const styles = useStyles2(getStyles);
 
-    return (
-      <div className={cx([css.wrapper, className])} {...otherProps} ref={ref}>
-        {header && (
-          <div className={css.header}>
-            <h5>{header}</h5>
-          </div>
-        )}
-        {children}
-        {footer && <div className={css.footer}>{footer}</div>}
-      </div>
-    );
-  })
+      return (
+        <Alert severity={severity} className={className} {...otherProps} ref={ref} title={title as string}>
+          <div>{children}</div>
+          {url && (
+            <a href={url} className={cx('external-link', styles.docsLink)} target="_blank" rel="noreferrer">
+              <Icon name="book" /> {urlTitle || 'Read more'}
+            </a>
+          )}
+        </Alert>
+      );
+    }
+  )
 );
 
-const getInfoBoxStyles = stylesFactory((theme: GrafanaTheme) => ({
-  wrapper: css`
-    position: relative;
-    padding: ${theme.spacing.lg};
-    background-color: ${theme.colors.bg2};
-    border-top: 3px solid ${theme.palette.blue80};
-    margin-bottom: ${theme.spacing.md};
-    margin-right: ${theme.spacing.xs};
-    box-shadow: ${theme.shadows.listItem};
-    flex-grow: 1;
+InfoBox.displayName = 'InfoBox';
 
-    ul {
-      padding-left: ${theme.spacing.lg};
-    }
-
-    code {
-      @include font-family-monospace();
-      font-size: ${theme.typography.size.sm};
-      background-color: ${theme.colors.bg1};
-      color: ${theme.colors.text};
-      border: 1px solid ${theme.colors.border2};
-      border-radius: 4px;
-    }
-
-    p:last-child {
-      margin-bottom: 0;
-    }
-
-    a {
-      @extend .external-link;
-    }
-
-    &--max-lg {
-      max-width: ${theme.breakpoints.lg};
-    }
-  `,
-  header: css`
-    margin-bottom: ${theme.spacing.d};
-  `,
-  footer: css`
-    margin-top: ${theme.spacing.d};
-  `,
-}));
+const getStyles = stylesFactory((theme: GrafanaThemeV2) => {
+  return {
+    docsLink: css`
+      display: inline-block;
+      margin-top: ${theme.spacing(2)};
+    `,
+  };
+});

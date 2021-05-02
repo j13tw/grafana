@@ -38,7 +38,7 @@ export function getRollupNotice(metaList: MetricTankSeriesMeta[]): QueryResultMe
     if (archiveIndex > 0) {
       const schema = parseSchemaRetentions(meta['schema-retentions']);
       const intervalString = schema[archiveIndex].interval;
-      const func = meta['consolidator-normfetch'].replace('Consolidator', '');
+      const func = (meta['consolidator-normfetch'] ?? '').replace('Consolidator', '');
 
       return {
         text: `Data is rolled up, aggregated over ${intervalString} using ${func} function`,
@@ -56,7 +56,7 @@ export function getRuntimeConsolidationNotice(metaList: MetricTankSeriesMeta[]):
     const runtimeNr = meta['aggnum-rc'];
 
     if (runtimeNr > 0) {
-      const func = meta['consolidator-rc'].replace('Consolidator', '');
+      const func = (meta['consolidator-rc'] ?? '').replace('Consolidator', '');
 
       return {
         text: `Data is runtime consolidated, ${runtimeNr} datapoints combined using ${func} function`,
@@ -73,7 +73,7 @@ export function parseSchemaRetentions(spec: string): RetentionInfo[] {
   if (!spec) {
     return [];
   }
-  return spec.split(',').map(str => {
+  return spec.split(',').map((str) => {
     const vals = str.split(':');
     return {
       interval: vals[0],

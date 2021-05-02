@@ -1,43 +1,44 @@
 // Libraries
 import React, { ReactNode } from 'react';
-import intersection from 'lodash/intersection';
+import { intersectionBy, debounce, unionBy } from 'lodash';
 
 import {
-  QueryField,
-  SlatePrism,
+  BracesPlugin,
   LegacyForms,
+  MultiSelect,
+  QueryField,
+  Select,
+  SlatePrism,
   TypeaheadInput,
   TypeaheadOutput,
-  BracesPlugin,
-  Select,
-  MultiSelect,
-  Token,
 } from '@grafana/ui';
 
 // Utils & Services
 // dom also includes Element polyfills
-import { Plugin, Node, Editor } from 'slate';
+import { Editor, Node, Plugin } from 'slate';
 import syntax from '../syntax';
 
 // Types
-import { ExploreQueryFieldProps, AbsoluteTimeRange, SelectableValue, ExploreMode, AppEvents } from '@grafana/data';
-import { CloudWatchQuery, CloudWatchLogsQuery } from '../types';
+import { AbsoluteTimeRange, ExploreQueryFieldProps, SelectableValue } from '@grafana/data';
+import { CloudWatchJsonData, CloudWatchLogsQuery, CloudWatchQuery } from '../types';
 import { CloudWatchDatasource } from '../datasource';
-import Prism, { Grammar } from 'prismjs';
+import { LanguageMap, languages as prismLanguages } from 'prismjs';
 import { CloudWatchLanguageProvider } from '../language_provider';
-import { css } from 'emotion';
+import { css } from '@emotion/css';
 import { ExploreId } from 'app/types';
 import { dispatch } from 'app/store/store';
-import { changeModeAction } from 'app/features/explore/state/actionTypes';
-import { appEvents } from 'app/core/core';
+import { notifyApp } from 'app/core/actions';
+import { createErrorNotification } from 'app/core/copy/appNotification';
+import { InputActionMeta } from '@grafana/ui/src/components/Select/types';
+import { getStatsGroups } from '../utils/query/getStatsGroups';
 
-export interface CloudWatchLogsQueryFieldProps extends ExploreQueryFieldProps<CloudWatchDatasource, CloudWatchQuery> {
+export interface CloudWatchLogsQueryFieldProps
+  extends ExploreQueryFieldProps<CloudWatchDatasource, CloudWatchQuery, CloudWatchJsonData> {
   absoluteRange: AbsoluteTimeRange;
   onLabelsRefresh?: () => void;
   ExtraFieldElement?: ReactNode;
-  syntaxLoaded: boolean;
-  syntax: Grammar;
   exploreId: ExploreId;
+  allowCustomValue?: boolean;
 }
 
 const containerClass = css`
@@ -70,7 +71,7 @@ interface State {
 export class CloudWatchLogsQueryField extends React.PureComponent<CloudWatchLogsQueryFieldProps, State> {
   state: State = {
     selectedLogGroups:
-      (this.props.query as CloudWatchLogsQuery).logGroupNames?.map(logGroup => ({
+      (this.props.query as CloudWatchLogsQuery).logGroupNames?.map((logGroup) => ({
         value: logGroup,
         label: logGroup,
       })) ?? [],
@@ -93,89 +94,135 @@ export class CloudWatchLogsQueryField extends React.PureComponent<CloudWatchLogs
   constructor(props: CloudWatchLogsQueryFieldProps, context: React.Context<any>) {
     super(props, context);
 
-    Prism.languages['cloudwatch'] = syntax;
     this.plugins = [
       BracesPlugin(),
-      SlatePrism({
-        onlyIn: (node: Node) => node.object === 'block' && node.type === 'code_block',
-        getSyntax: (node: Node) => 'cloudwatch',
-      }),
+      SlatePrism(
+        {
+          onlyIn: (node: Node) => node.object === 'block' && node.type === 'code_block',
+          getSyntax: (node: Node) => 'cloudwatch',
+        },
+        { ...(prismLanguages as LanguageMap), cloudwatch: syntax }
+      ),
     ];
   }
 
-  fetchLogGroupOptions = async (region: string) => {
+  fetchLogGroupOptions = async (region: string, logGroupNamePrefix?: string) => {
     try {
       const logGroups: string[] = await this.props.datasource.describeLogGroups({
         refId: this.props.query.refId,
         region,
+        logGroupNamePrefix,
       });
 
-      return logGroups.map(logGroup => ({
+      return logGroups.map((logGroup) => ({
         value: logGroup,
         label: logGroup,
       }));
     } catch (err) {
-      appEvents.emit(AppEvents.alertError, [err]);
+      dispatch(notifyApp(createErrorNotification(err)));
       return [];
     }
   };
 
-  componentWillMount = () => {
-    const { datasource, query } = this.props;
+  onLogGroupSearch = (searchTerm: string, region: string, actionMeta: InputActionMeta) => {
+    if (actionMeta.action !== 'input-change') {
+      return Promise.resolve();
+    }
+
+    // No need to fetch matching log groups if the search term isn't valid
+    // This is also useful for preventing searches when a user is typing out a log group with template vars
+    // See https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_LogGroup.html for the source of the pattern below
+    const logGroupNamePattern = /^[\.\-_/#A-Za-z0-9]+$/;
+    if (!logGroupNamePattern.test(searchTerm)) {
+      return Promise.resolve();
+    }
 
     this.setState({
       loadingLogGroups: true,
     });
 
-    this.fetchLogGroupOptions(query.region).then(logGroups => {
-      this.setState({
-        loadingLogGroups: false,
-        availableLogGroups: logGroups,
+    return this.fetchLogGroupOptions(region, searchTerm)
+      .then((matchingLogGroups) => {
+        this.setState((state) => ({
+          availableLogGroups: unionBy(state.availableLogGroups, matchingLogGroups, 'value'),
+        }));
+      })
+      .finally(() => {
+        this.setState({
+          loadingLogGroups: false,
+        });
+      });
+  };
+
+  onLogGroupSearchDebounced = debounce(this.onLogGroupSearch, 300);
+
+  componentDidMount = () => {
+    const { datasource, query, onChange } = this.props;
+
+    this.setState({
+      loadingLogGroups: true,
+    });
+
+    this.fetchLogGroupOptions(query.region).then((logGroups) => {
+      this.setState((state) => {
+        const selectedLogGroups = state.selectedLogGroups;
+        if (onChange) {
+          const nextQuery = {
+            ...query,
+            logGroupNames: selectedLogGroups.map((group) => group.value!),
+          };
+
+          onChange(nextQuery);
+        }
+
+        return {
+          loadingLogGroups: false,
+          availableLogGroups: logGroups,
+          selectedLogGroups,
+        };
       });
     });
 
-    datasource.getRegions().then(regions => {
+    datasource.getRegions().then((regions) => {
       this.setState({
         regions,
       });
     });
   };
 
-  onChangeQuery = (value: string, override?: boolean) => {
+  onChangeQuery = (value: string) => {
     // Send text change to parent
-    const { query, onChange, onRunQuery } = this.props;
+    const { query, onChange } = this.props;
     const { selectedLogGroups, selectedRegion } = this.state;
 
     if (onChange) {
       const nextQuery = {
         ...query,
         expression: value,
-        logGroupNames: selectedLogGroups?.map(logGroupName => logGroupName.value) ?? [],
-        region: selectedRegion.value,
+        logGroupNames: selectedLogGroups?.map((logGroupName) => logGroupName.value!) ?? [],
+        region: selectedRegion.value ?? 'default',
+        statsGroups: getStatsGroups(value),
       };
       onChange(nextQuery);
-
-      if (override && onRunQuery) {
-        onRunQuery();
-      }
     }
   };
 
-  setSelectedLogGroups = (v: Array<SelectableValue<string>>) => {
+  setSelectedLogGroups = (selectedLogGroups: Array<SelectableValue<string>>) => {
     this.setState({
-      selectedLogGroups: v,
+      selectedLogGroups,
     });
 
     const { onChange, query } = this.props;
+    onChange?.({
+      ...(query as CloudWatchLogsQuery),
+      logGroupNames: selectedLogGroups.map((logGroupName) => logGroupName.value!) ?? [],
+    });
+  };
 
-    if (onChange) {
-      const nextQuery = {
-        ...query,
-        logGroupNames: v.map(logGroupName => logGroupName.value) ?? [],
-      };
-
-      onChange(nextQuery);
-    }
+  setCustomLogGroups = (v: string) => {
+    const customLogGroup: SelectableValue<string> = { value: v, label: v };
+    const selectedLogGroups = [...this.state.selectedLogGroups, customLogGroup];
+    this.setSelectedLogGroups(selectedLogGroups);
   };
 
   setSelectedRegion = async (v: SelectableValue<string>) => {
@@ -186,26 +233,29 @@ export class CloudWatchLogsQueryField extends React.PureComponent<CloudWatchLogs
 
     const logGroups = await this.fetchLogGroupOptions(v.value!);
 
-    this.setState(state => ({
-      availableLogGroups: logGroups,
-      selectedLogGroups: intersection(state.selectedLogGroups, logGroups),
-      loadingLogGroups: false,
-    }));
+    this.setState((state) => {
+      const selectedLogGroups = intersectionBy(state.selectedLogGroups, logGroups, 'value');
 
-    const { onChange, query } = this.props;
+      const { onChange, query } = this.props;
+      if (onChange) {
+        const nextQuery = {
+          ...query,
+          region: v.value ?? 'default',
+          logGroupNames: selectedLogGroups.map((group) => group.value!),
+        };
 
-    if (onChange) {
-      const nextQuery = {
-        ...query,
-        region: v.value,
+        onChange(nextQuery);
+      }
+      return {
+        availableLogGroups: logGroups,
+        selectedLogGroups: selectedLogGroups,
+        loadingLogGroups: false,
       };
-
-      onChange(nextQuery);
-    }
+    });
   };
 
   onTypeahead = async (typeahead: TypeaheadInput): Promise<TypeaheadOutput> => {
-    const { datasource, exploreMode } = this.props;
+    const { datasource } = this.props;
     const { selectedLogGroups } = this.state;
 
     if (!datasource.languageProvider) {
@@ -216,43 +266,10 @@ export class CloudWatchLogsQueryField extends React.PureComponent<CloudWatchLogs
     const { history, absoluteRange } = this.props;
     const { prefix, text, value, wrapperClasses, labelKey, editor } = typeahead;
 
-    const result = await cloudwatchLanguageProvider.provideCompletionItems(
+    return await cloudwatchLanguageProvider.provideCompletionItems(
       { text, value, prefix, wrapperClasses, labelKey, editor },
-      { history, absoluteRange, logGroupNames: selectedLogGroups.map(logGroup => logGroup.value!) }
+      { history, absoluteRange, logGroupNames: selectedLogGroups.map((logGroup) => logGroup.value!) }
     );
-
-    const tokens = editor?.value.data.get('tokens');
-    const queryUsesStatsCommand = tokens.find(
-      (token: Token) => token.types.includes('query-command') && token.content.toLowerCase() === 'stats'
-    );
-
-    // TEMP: Remove when logs/metrics unification is complete
-    if (queryUsesStatsCommand && exploreMode === ExploreMode.Logs) {
-      this.setState({
-        hint: {
-          message: 'You are trying to run a stats query in Logs mode. ',
-          fix: {
-            label: 'Switch to Metrics mode.',
-            action: this.switchToMetrics,
-          },
-        },
-      });
-    }
-    return result;
-  };
-
-  switchToMetrics = () => {
-    const { query, onChange, exploreId } = this.props;
-
-    if (onChange) {
-      const nextQuery: CloudWatchLogsQuery = {
-        ...(query as CloudWatchLogsQuery),
-        apiMode: 'Logs',
-      };
-      onChange(nextQuery);
-    }
-
-    dispatch(changeModeAction({ exploreId, mode: ExploreMode.Metrics }));
   };
 
   onQueryFieldClick = (_event: Event, _editor: Editor, next: () => any) => {
@@ -276,7 +293,7 @@ export class CloudWatchLogsQueryField extends React.PureComponent<CloudWatchLogs
   };
 
   render() {
-    const { ExtraFieldElement, data, query, syntaxLoaded, datasource } = this.props;
+    const { ExtraFieldElement, data, query, datasource, allowCustomValue } = this.props;
     const {
       selectedLogGroups,
       availableLogGroups,
@@ -302,10 +319,9 @@ export class CloudWatchLogsQueryField extends React.PureComponent<CloudWatchLogs
               <Select
                 options={regions}
                 value={selectedRegion}
-                onChange={v => this.setSelectedRegion(v)}
+                onChange={(v) => this.setSelectedRegion(v)}
                 width={18}
                 placeholder="Choose Region"
-                menuPlacement="bottom"
                 maxMenuHeight={500}
               />
             }
@@ -317,10 +333,14 @@ export class CloudWatchLogsQueryField extends React.PureComponent<CloudWatchLogs
             className="flex-grow-1"
             inputEl={
               <MultiSelect
-                options={availableLogGroups}
+                allowCustomValue={allowCustomValue}
+                options={unionBy(availableLogGroups, selectedLogGroups, 'value')}
                 value={selectedLogGroups}
-                onChange={v => {
+                onChange={(v) => {
                   this.setSelectedLogGroups(v);
+                }}
+                onCreateOption={(v) => {
+                  this.setCustomLogGroups(v);
                 }}
                 className={containerClass}
                 closeMenuOnSelect={false}
@@ -329,10 +349,12 @@ export class CloudWatchLogsQueryField extends React.PureComponent<CloudWatchLogs
                 isOptionDisabled={() => selectedLogGroups.length >= MAX_LOG_GROUPS}
                 placeholder="Choose Log Groups"
                 maxVisibleValues={4}
-                menuPlacement="bottom"
                 noOptionsMessage="No log groups available"
                 isLoading={loadingLogGroups}
                 onOpenMenu={this.onOpenLogGroupMenu}
+                onInputChange={(value, actionMeta) => {
+                  this.onLogGroupSearchDebounced(value, selectedRegion.value ?? 'default', actionMeta);
+                }}
               />
             }
           />
@@ -341,16 +363,15 @@ export class CloudWatchLogsQueryField extends React.PureComponent<CloudWatchLogs
           <div className="gf-form gf-form--grow flex-shrink-1">
             <QueryField
               additionalPlugins={this.plugins}
-              query={query.expression}
+              query={query.expression ?? ''}
               onChange={this.onChangeQuery}
               onBlur={this.props.onBlur}
               onClick={this.onQueryFieldClick}
               onRunQuery={this.props.onRunQuery}
               onTypeahead={this.onTypeahead}
               cleanText={cleanText}
-              placeholder="Enter a CloudWatch Logs Insights query"
+              placeholder="Enter a CloudWatch Logs Insights query (run with Shift+Enter)"
               portalOrigin="cloudwatch"
-              syntaxLoaded={syntaxLoaded}
               disabled={loadingLogGroups || selectedLogGroups.length === 0}
             />
           </div>

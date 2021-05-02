@@ -1,6 +1,8 @@
 import { DataTransformerID } from './ids';
 import { DataTransformerInfo } from '../../types/transformations';
-import { DataFrame, Field } from '../..';
+import { DataFrame, Field } from '../../types/dataFrame';
+import { getFieldDisplayName } from '../../field/fieldState';
+import { map } from 'rxjs/operators';
 
 export interface RenameFieldsTransformerOptions {
   renameByName: Record<string, string>;
@@ -18,29 +20,31 @@ export const renameFieldsTransformer: DataTransformerInfo<RenameFieldsTransforme
    * Return a modified copy of the series.  If the transform is not or should not
    * be applied, just return the input series
    */
-  transformer: (options: RenameFieldsTransformerOptions) => {
-    const renamer = createRenamer(options.renameByName);
+  operator: (options) => (source) =>
+    source.pipe(
+      map((data) => {
+        const renamer = createRenamer(options.renameByName);
 
-    return (data: DataFrame[]) => {
-      if (!Array.isArray(data) || data.length === 0) {
-        return data;
-      }
+        if (!Array.isArray(data) || data.length === 0) {
+          return data;
+        }
 
-      return data.map(frame => ({
-        ...frame,
-        fields: renamer(frame.fields),
-      }));
-    };
-  },
+        return data.map((frame) => ({
+          ...frame,
+          fields: renamer(frame),
+        }));
+      })
+    ),
 };
 
-const createRenamer = (renameByName: Record<string, string>) => (fields: Field[]): Field[] => {
+const createRenamer = (renameByName: Record<string, string>) => (frame: DataFrame): Field[] => {
   if (!renameByName || Object.keys(renameByName).length === 0) {
-    return fields;
+    return frame.fields;
   }
 
-  return fields.map(field => {
-    const renameTo = renameByName[field.name];
+  return frame.fields.map((field) => {
+    const displayName = getFieldDisplayName(field, frame);
+    const renameTo = renameByName[displayName];
 
     if (typeof renameTo !== 'string' || renameTo.length === 0) {
       return field;
@@ -48,7 +52,14 @@ const createRenamer = (renameByName: Record<string, string>) => (fields: Field[]
 
     return {
       ...field,
-      name: renameTo,
+      config: {
+        ...field.config,
+        displayName: renameTo,
+      },
+      state: {
+        ...field.state,
+        displayName: renameTo,
+      },
     };
   });
 };

@@ -32,7 +32,7 @@ const theme: GrafanaThemeCommons = {
   typography: {
     fontFamily: {
       sansSerif: "'Roboto', 'Helvetica Neue', Arial, sans-serif",
-      monospace: "Menlo, Monaco, Consolas, 'Courier New', monospace",
+      monospace: "'Roboto Mono', monospace",
     },
     size: {
       base: '14px',
@@ -53,7 +53,7 @@ const theme: GrafanaThemeCommons = {
       light: 300,
       regular: 400,
       semibold: 500,
-      bold: 600,
+      bold: 500,
     },
     lineHeight: {
       xs: 1,
@@ -72,8 +72,10 @@ const theme: GrafanaThemeCommons = {
     md: '769px', // 1 more than regular ipad in portrait
     lg: '992px',
     xl: '1200px',
+    xxl: '1440px',
   },
   spacing: {
+    base: SPACING_BASE,
     insetSquishMd: '4px 8px',
     d: '16px',
     xxs: '2px',

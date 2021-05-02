@@ -1,5 +1,23 @@
-# Golang build container
-FROM golang:1.14.1-alpine
+FROM node:14.16.0-alpine3.13 as js-builder
+
+WORKDIR /usr/src/app/
+
+COPY package.json yarn.lock ./
+COPY packages packages
+
+RUN apk --no-cache add git
+RUN yarn install --pure-lockfile --no-progress
+
+COPY tsconfig.json .eslintrc .editorconfig .browserslistrc .prettierrc.js ./
+COPY public public
+COPY tools tools
+COPY scripts scripts
+COPY emails emails
+
+ENV NODE_ENV production
+RUN yarn build
+
+FROM golang:1.16.1-alpine3.13 as go-builder
 
 RUN apk add --no-cache gcc g++
 
@@ -14,32 +32,13 @@ COPY build.go package.json ./
 
 RUN go run build.go build
 
-# Node build container
-FROM node:12.13.0-alpine
-
-WORKDIR /usr/src/app/
-
-COPY package.json yarn.lock ./
-COPY packages packages
-
-RUN yarn install --pure-lockfile --no-progress
-
-COPY Gruntfile.js tsconfig.json .eslintrc .editorconfig .browserslistrc .prettierrc.js ./
-COPY public public
-COPY tools tools
-COPY scripts scripts
-COPY emails emails
-
-ENV NODE_ENV production
-RUN ./node_modules/.bin/grunt build
-
-# Final container
-FROM alpine:3.10
+# Final stage
+FROM alpine:3.13
 
 LABEL maintainer="Grafana team <hello@grafana.com>"
 
 ARG GF_UID="472"
-ARG GF_GID="472"
+ARG GF_GID="0"
 
 ENV PATH="/usr/share/grafana/bin:$PATH" \
     GF_PATHS_CONFIG="/etc/grafana/grafana.ini" \
@@ -52,27 +51,32 @@ ENV PATH="/usr/share/grafana/bin:$PATH" \
 WORKDIR $GF_PATHS_HOME
 
 RUN apk add --no-cache ca-certificates bash tzdata && \
-    apk add --no-cache --upgrade --repository=http://dl-cdn.alpinelinux.org/alpine/edge/main openssl musl-utils
+    apk add --no-cache openssl musl-utils
 
 COPY conf ./conf
 
-RUN mkdir -p "$GF_PATHS_HOME/.aws" && \
-    addgroup -S -g $GF_GID grafana && \
-    adduser -S -u $GF_UID -G grafana grafana && \
+RUN if [ ! $(getent group "$GF_GID") ]; then \
+      addgroup -S -g $GF_GID grafana; \
+    fi
+
+RUN export GF_GID_NAME=$(getent group $GF_GID | cut -d':' -f1) && \
+    mkdir -p "$GF_PATHS_HOME/.aws" && \
+    adduser -S -u $GF_UID -G "$GF_GID_NAME" grafana && \
     mkdir -p "$GF_PATHS_PROVISIONING/datasources" \
              "$GF_PATHS_PROVISIONING/dashboards" \
              "$GF_PATHS_PROVISIONING/notifiers" \
+             "$GF_PATHS_PROVISIONING/plugins" \
              "$GF_PATHS_LOGS" \
              "$GF_PATHS_PLUGINS" \
              "$GF_PATHS_DATA" && \
     cp "$GF_PATHS_HOME/conf/sample.ini" "$GF_PATHS_CONFIG" && \
     cp "$GF_PATHS_HOME/conf/ldap.toml" /etc/grafana/ldap.toml && \
-    chown -R grafana:grafana "$GF_PATHS_DATA" "$GF_PATHS_HOME/.aws" "$GF_PATHS_LOGS" "$GF_PATHS_PLUGINS" "$GF_PATHS_PROVISIONING" && \
+    chown -R "grafana:$GF_GID_NAME" "$GF_PATHS_DATA" "$GF_PATHS_HOME/.aws" "$GF_PATHS_LOGS" "$GF_PATHS_PLUGINS" "$GF_PATHS_PROVISIONING" && \
     chmod -R 777 "$GF_PATHS_DATA" "$GF_PATHS_HOME/.aws" "$GF_PATHS_LOGS" "$GF_PATHS_PLUGINS" "$GF_PATHS_PROVISIONING"
 
-COPY --from=0 /go/src/github.com/grafana/grafana/bin/linux-amd64/grafana-server /go/src/github.com/grafana/grafana/bin/linux-amd64/grafana-cli ./bin/
-COPY --from=1 /usr/src/app/public ./public
-COPY --from=1 /usr/src/app/tools ./tools
+COPY --from=go-builder /go/src/github.com/grafana/grafana/bin/linux-amd64/grafana-server /go/src/github.com/grafana/grafana/bin/linux-amd64/grafana-cli ./bin/
+COPY --from=js-builder /usr/src/app/public ./public
+COPY --from=js-builder /usr/src/app/tools ./tools
 
 EXPOSE 3000
 

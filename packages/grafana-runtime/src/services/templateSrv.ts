@@ -1,4 +1,4 @@
-import { VariableModel } from '@grafana/data';
+import { VariableModel, ScopedVars } from '@grafana/data';
 
 /**
  * Via the TemplateSrv consumers get access to all the available template variables
@@ -8,14 +8,22 @@ import { VariableModel } from '@grafana/data';
  * @public
  */
 export interface TemplateSrv {
+  /**
+   * List the dashboard variables
+   */
   getVariables(): VariableModel[];
+
+  /**
+   * Replace the values within the target string.  See also {@link InterpolateFunction}
+   */
+  replace(target?: string, scopedVars?: ScopedVars, format?: string | Function): string;
 }
 
 let singletonInstance: TemplateSrv;
 
 /**
  * Used during startup by Grafana to set the TemplateSrv so it is available
- * via the the {@link getTemplateSrv} to the rest of the application.
+ * via the {@link getTemplateSrv} to the rest of the application.
  *
  * @internal
  */

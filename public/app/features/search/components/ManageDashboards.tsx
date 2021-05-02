@@ -1,38 +1,41 @@
 import React, { FC, memo, useState } from 'react';
-import { css } from 'emotion';
-import { HorizontalGroup, stylesFactory, useTheme } from '@grafana/ui';
+import { css } from '@emotion/css';
+import { stylesFactory, useTheme, Spinner } from '@grafana/ui';
 import { GrafanaTheme } from '@grafana/data';
 import { contextSrv } from 'app/core/services/context_srv';
 import EmptyListCTA from 'app/core/components/EmptyListCTA/EmptyListCTA';
+import { FilterInput } from 'app/core/components/FilterInput/FilterInput';
+import { FolderDTO } from 'app/types';
+import { useManageDashboards } from '../hooks/useManageDashboards';
+import { SearchLayout } from '../types';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { MoveToFolderModal } from './MoveToFolderModal';
 import { useSearchQuery } from '../hooks/useSearchQuery';
-import { useManageDashboards } from '../hooks/useManageDashboards';
 import { SearchResultsFilter } from './SearchResultsFilter';
 import { SearchResults } from './SearchResults';
 import { DashboardActions } from './DashboardActions';
-import { SearchLayout } from '../types';
-import { FilterInput } from 'app/core/components/FilterInput/FilterInput';
 
 export interface Props {
-  folderId?: number;
-  folderUid?: string;
+  folder?: FolderDTO;
 }
 
 const { isEditor } = contextSrv;
 
-export const ManageDashboards: FC<Props> = memo(({ folderId, folderUid }) => {
+export const ManageDashboards: FC<Props> = memo(({ folder }) => {
+  const folderId = folder?.id;
+  const folderUid = folder?.uid;
   const theme = useTheme();
   const styles = getStyles(theme);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   const defaultLayout = folderId ? SearchLayout.List : SearchLayout.Folders;
-  const queryParams = {
+  const queryParamsDefaults = {
     skipRecent: true,
     skipStarred: true,
     folderIds: folderId ? [folderId] : [],
     layout: defaultLayout,
   };
+
   const {
     query,
     hasFilters,
@@ -42,11 +45,12 @@ export const ManageDashboards: FC<Props> = memo(({ folderId, folderUid }) => {
     onTagAdd,
     onSortChange,
     onLayoutChange,
-  } = useSearchQuery(queryParams);
+  } = useSearchQuery(queryParamsDefaults);
 
   const {
     results,
     loading,
+    initialLoading,
     canSave,
     allChecked,
     hasEditPermissionInFolders,
@@ -57,7 +61,8 @@ export const ManageDashboards: FC<Props> = memo(({ folderId, folderUid }) => {
     onToggleAllChecked,
     onDeleteItems,
     onMoveItems,
-  } = useManageDashboards(query, { hasEditPermissionInFolders: contextSrv.hasEditPermissionInFolders }, folderUid);
+    noFolders,
+  } = useManageDashboards(query, {}, folder);
 
   const onMoveTo = () => {
     setIsMoveModalOpen(true);
@@ -67,7 +72,11 @@ export const ManageDashboards: FC<Props> = memo(({ folderId, folderUid }) => {
     setIsDeleteModalOpen(true);
   };
 
-  if (canSave && folderId && !hasFilters && results.length === 0 && !loading) {
+  if (initialLoading) {
+    return <Spinner className={styles.spinner} />;
+  }
+
+  if (noFolders && !hasFilters) {
     return (
       <EmptyListCTA
         title="This folder doesn't have any dashboards yet"
@@ -84,24 +93,18 @@ export const ManageDashboards: FC<Props> = memo(({ folderId, folderUid }) => {
 
   return (
     <div className={styles.container}>
-      <div>
-        <HorizontalGroup justify="space-between">
-          <FilterInput
-            labelClassName="gf-form--has-input-icon"
-            inputClassName="gf-form-input width-20"
-            value={query.query}
-            onChange={onQueryChange}
-            placeholder={'Search dashboards by name'}
-          />
-          <DashboardActions isEditor={isEditor} canEdit={hasEditPermissionInFolders || canSave} folderId={folderId} />
-        </HorizontalGroup>
+      <div className="page-action-bar">
+        <div className="gf-form gf-form--grow m-r-2">
+          <FilterInput value={query.query} onChange={onQueryChange} placeholder={'Search dashboards by name'} />
+        </div>
+        <DashboardActions isEditor={isEditor} canEdit={hasEditPermissionInFolders || canSave} folderId={folderId} />
       </div>
 
       <div className={styles.results}>
         <SearchResultsFilter
           allChecked={allChecked}
-          canDelete={canDelete}
-          canMove={canMove}
+          canDelete={hasEditPermissionInFolders && canDelete}
+          canMove={hasEditPermissionInFolders && canMove}
           deleteItem={onItemDelete}
           moveTo={onMoveTo}
           onToggleAllChecked={onToggleAllChecked}
@@ -111,11 +114,12 @@ export const ManageDashboards: FC<Props> = memo(({ folderId, folderUid }) => {
           query={query}
           hideLayout={!!folderUid}
           onLayoutChange={onLayoutChange}
+          editable={hasEditPermissionInFolders}
         />
         <SearchResults
           loading={loading}
           results={results}
-          editable
+          editable={hasEditPermissionInFolders}
           onTagSelected={onTagAdd}
           onToggleSection={onToggleSection}
           onToggleChecked={onToggleChecked}
@@ -138,6 +142,8 @@ export const ManageDashboards: FC<Props> = memo(({ folderId, folderUid }) => {
   );
 });
 
+export default ManageDashboards;
+
 const getStyles = stylesFactory((theme: GrafanaTheme) => {
   return {
     container: css`
@@ -149,6 +155,12 @@ const getStyles = stylesFactory((theme: GrafanaTheme) => {
       flex: 1;
       height: 100%;
       margin-top: ${theme.spacing.xl};
+    `,
+    spinner: css`
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 200px;
     `,
   };
 });

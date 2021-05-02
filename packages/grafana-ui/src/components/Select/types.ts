@@ -2,8 +2,13 @@ import { SelectableValue } from '@grafana/data';
 import React from 'react';
 
 export type SelectValue<T> = T | SelectableValue<T> | T[] | Array<SelectableValue<T>>;
+export type InputActionMeta = {
+  action: 'set-value' | 'input-change' | 'input-blur' | 'menu-close';
+};
 
 export interface SelectCommonProps<T> {
+  /** Aria label applied to the input field */
+  ['aria-label']?: string;
   allowCustomValue?: boolean;
   /** Focus is set to the Select when rendered*/
   autoFocus?: boolean;
@@ -14,20 +19,26 @@ export interface SelectCommonProps<T> {
   components?: any;
   defaultValue?: any;
   disabled?: boolean;
-  /**   Function for formatting the text that is displayed when creating a new value*/
+  filterOption?: (option: SelectableValue, searchQuery: string) => boolean;
+  /** Function for formatting the text that is displayed when creating a new value*/
   formatCreateLabel?: (input: string) => string;
-  getOptionLabel?: (item: SelectableValue<T>) => string;
+  getOptionLabel?: (item: SelectableValue<T>) => React.ReactNode;
   getOptionValue?: (item: SelectableValue<T>) => string;
   inputValue?: string;
   invalid?: boolean;
   isClearable?: boolean;
+  /** The id to set on the SelectContainer component. To set the id for a label (with htmlFor), @see inputId instead */
+  id?: string;
   isLoading?: boolean;
   isMulti?: boolean;
+  /** The id of the search input. Use this to set a matching label with htmlFor */
+  inputId?: string;
   isOpen?: boolean;
   /** Disables the possibility to type into the input*/
   isSearchable?: boolean;
   showAllSelectedWhenOpen?: boolean;
   maxMenuHeight?: number;
+  minMenuHeight?: number;
   maxVisibleValues?: number;
   menuPlacement?: 'auto' | 'bottom' | 'top';
   menuPosition?: 'fixed' | 'absolute';
@@ -38,7 +49,7 @@ export interface SelectCommonProps<T> {
   onCloseMenu?: () => void;
   /** allowCustomValue must be enabled. Function decides what to do with that custom value. */
   onCreateOption?: (value: string) => void;
-  onInputChange?: (label: string) => void;
+  onInputChange?: (value: string, actionMeta: InputActionMeta) => void;
   onKeyDown?: (event: React.KeyboardEvent) => void;
   onOpenMenu?: () => void;
   openMenuOnFocus?: boolean;
@@ -49,7 +60,7 @@ export interface SelectCommonProps<T> {
   /** Use a custom element to control Select. A proper ref to the renderControl is needed if 'portal' isn't set to null*/
   renderControl?: ControlComponent<T>;
   tabSelectsValue?: boolean;
-  value?: SelectValue<T>;
+  value?: SelectValue<T> | null;
   /** Sets the width to a multiple of 8px. Should only be used with inline forms. Setting width of the container is preferred in other cases.*/
   width?: number;
   isOptionDisabled?: () => boolean;

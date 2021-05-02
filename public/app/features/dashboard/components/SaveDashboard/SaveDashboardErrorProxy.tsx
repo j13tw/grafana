@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
-import { Button, ConfirmModal, HorizontalGroup, Modal, stylesFactory, useTheme } from '@grafana/ui';
+import { Button, ConfirmModal, Modal, stylesFactory, useTheme } from '@grafana/ui';
 import { GrafanaTheme } from '@grafana/data';
-import { css } from 'emotion';
+import { css } from '@emotion/css';
 import { DashboardModel } from 'app/features/dashboard/state';
 import { useDashboardSave } from './useDashboardSave';
 import { SaveDashboardModalProps } from './types';
@@ -25,10 +25,10 @@ export const SaveDashboardErrorProxy: React.FC<SaveDashboardErrorProxyProps> = (
   const { onDashboardSave } = useDashboardSave(dashboard);
 
   useEffect(() => {
-    if (error.data) {
+    if (error.data && isHandledError(error.data.status)) {
       error.isHandled = true;
     }
-  }, []);
+  }, [error]);
 
   return (
     <>
@@ -41,7 +41,7 @@ export const SaveDashboardErrorProxy: React.FC<SaveDashboardErrorProxyProps> = (
               Someone else has updated this dashboard <br /> <small>Would you still like to save this dashboard?</small>
             </div>
           }
-          confirmText="Save & Overwrite"
+          confirmText="Save and overwrite"
           onConfirm={async () => {
             await onDashboardSave(dashboardSaveModel, { overwrite: true }, dashboard);
             onDismiss();
@@ -59,7 +59,7 @@ export const SaveDashboardErrorProxy: React.FC<SaveDashboardErrorProxyProps> = (
               <small>Would you still like to save this dashboard?</small>
             </div>
           }
-          confirmText="Save & Overwrite"
+          confirmText="Save and overwrite"
           onConfirm={async () => {
             await onDashboardSave(dashboardSaveModel, { overwrite: true }, dashboard);
             onDismiss();
@@ -80,38 +80,48 @@ const ConfirmPluginDashboardSaveModal: React.FC<SaveDashboardModalProps> = ({ on
   const styles = getConfirmPluginDashboardSaveModalStyles(theme);
 
   return (
-    <Modal className={styles.modal} title="Plugin Dashboard" icon="copy" isOpen={true} onDismiss={onDismiss}>
-      <div className={styles.modalContent}>
-        <div className={styles.modalText}>
-          Your changes will be lost when you update the plugin.
-          <br /> <small>Use Save As to create custom version.</small>
-        </div>
-        <HorizontalGroup justify="center">
-          <SaveDashboardAsButton dashboard={dashboard} onSaveSuccess={onDismiss} />
-          <Button
-            variant="destructive"
-            onClick={async () => {
-              await onDashboardSave(dashboard.getSaveModelClone(), { overwrite: true }, dashboard);
-              onDismiss();
-            }}
-          >
-            Overwrite
-          </Button>
-          <Button variant="secondary" onClick={onDismiss}>
-            Cancel
-          </Button>
-        </HorizontalGroup>
+    <Modal className={styles.modal} title="Plugin dashboard" icon="copy" isOpen={true} onDismiss={onDismiss}>
+      <div className={styles.modalText}>
+        Your changes will be lost when you update the plugin.
+        <br />
+        <small>
+          Use <strong>Save As</strong> to create custom version.
+        </small>
       </div>
+      <Modal.ButtonRow>
+        <Button variant="secondary" onClick={onDismiss} fill="outline">
+          Cancel
+        </Button>
+        <SaveDashboardAsButton dashboard={dashboard} onSaveSuccess={onDismiss} />
+        <Button
+          variant="destructive"
+          onClick={async () => {
+            await onDashboardSave(dashboard.getSaveModelClone(), { overwrite: true }, dashboard);
+            onDismiss();
+          }}
+        >
+          Overwrite
+        </Button>
+      </Modal.ButtonRow>
     </Modal>
   );
+};
+
+const isHandledError = (errorStatus: string) => {
+  switch (errorStatus) {
+    case 'version-mismatch':
+    case 'name-exists':
+    case 'plugin-dashboard':
+      return true;
+
+    default:
+      return false;
+  }
 };
 
 const getConfirmPluginDashboardSaveModalStyles = stylesFactory((theme: GrafanaTheme) => ({
   modal: css`
     width: 500px;
-  `,
-  modalContent: css`
-    text-align: center;
   `,
   modalText: css`
     font-size: ${theme.typography.heading.h4};

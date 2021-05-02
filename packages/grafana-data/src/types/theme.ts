@@ -12,6 +12,7 @@ export interface GrafanaThemeCommons {
     md: string;
     lg: string;
     xl: string;
+    xxl: string;
   };
   typography: {
     fontFamily: {
@@ -52,6 +53,7 @@ export interface GrafanaThemeCommons {
     };
   };
   spacing: {
+    base: number;
     insetSquishMd: string;
     d: string;
     xxs: string;
@@ -135,7 +137,9 @@ export interface GrafanaTheme extends GrafanaThemeCommons {
 
     // New greys palette used by next-gen form elements
     gray98: string;
+    gray97: string;
     gray95: string;
+    gray90: string;
     gray85: string;
     gray70: string;
     gray60: string;
@@ -230,15 +234,6 @@ export interface GrafanaTheme extends GrafanaThemeCommons {
     formInputPlaceholderText: string;
     formValidationMessageText: string;
     formValidationMessageBg: string;
-    formSwitchBg: string;
-    formSwitchBgActive: string;
-    formSwitchBgActiveHover: string;
-    formSwitchBgHover: string;
-    formSwitchBgDisabled: string;
-    formSwitchDot: string;
-    formCheckboxBgChecked: string;
-    formCheckboxBgCheckedHover: string;
-    formCheckboxCheckmark: string;
   };
   shadows: {
     listItem: string;

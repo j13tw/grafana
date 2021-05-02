@@ -1,5 +1,4 @@
-import cloneDeep from 'lodash/cloneDeep';
-import omit from 'lodash/omit';
+import { cloneDeep, omit } from 'lodash';
 
 import {
   fieldReducers,
@@ -15,12 +14,14 @@ import {
   ThresholdsMode,
   ThresholdsConfig,
   validateFieldConfig,
-  FieldColorMode,
+  FieldColorModeId,
+  TextDisplayOptions,
 } from '@grafana/data';
 
 export interface SingleStatBaseOptions {
   reduceOptions: ReduceDataOptions;
   orientation: VizOrientation;
+  text?: TextDisplayOptions;
 }
 
 const optionsToKeep = ['reduceOptions', 'orientation'];
@@ -55,7 +56,7 @@ function migrateFromAngularSinglestat(panel: PanelModel<Partial<SingleStatBaseOp
   const prevPanel = prevOptions.angular;
   const reducer = fieldReducers.getIfExists(prevPanel.valueName);
   const options = {
-    fieldOptions: {
+    reduceOptions: {
       calcs: [reducer ? reducer.id : ReducerID.mean],
     },
     orientation: VizOrientation.Horizontal,
@@ -65,6 +66,10 @@ function migrateFromAngularSinglestat(panel: PanelModel<Partial<SingleStatBaseOp
 
   if (prevPanel.format) {
     defaults.unit = prevPanel.format;
+  }
+
+  if (prevPanel.tableColumn) {
+    options.reduceOptions.fields = `/^${prevPanel.tableColumn}$/`;
   }
 
   if (prevPanel.nullPointMode) {
@@ -170,7 +175,7 @@ export function sharedSingleStatMigrationHandler(panel: PanelModel<SingleStatBas
     const { defaults } = fieldOptions;
     if (defaults.color && typeof defaults.color === 'string') {
       defaults.color = {
-        mode: FieldColorMode.Fixed,
+        mode: FieldColorModeId.Fixed,
         fixedColor: defaults.color,
       };
     }
@@ -200,6 +205,15 @@ export function sharedSingleStatMigrationHandler(panel: PanelModel<SingleStatBas
     }
 
     delete options.fieldOptions;
+  }
+
+  if (previousVersion < 7.1) {
+    // move title to displayName
+    const oldTitle = (panel.fieldConfig.defaults as any).title;
+    if (oldTitle !== undefined && oldTitle !== null) {
+      panel.fieldConfig.defaults.displayName = oldTitle;
+      delete (panel.fieldConfig.defaults as any).title;
+    }
   }
 
   return options as SingleStatBaseOptions;
@@ -278,7 +292,7 @@ export function migrateOldThresholds(thresholds?: any[]): Threshold[] | undefine
   if (!thresholds || !thresholds.length) {
     return undefined;
   }
-  const copy = thresholds.map(t => {
+  const copy = thresholds.map((t) => {
     return {
       // Drops 'index'
       value: t.value === null ? -Infinity : t.value,

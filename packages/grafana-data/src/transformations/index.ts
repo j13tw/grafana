@@ -3,16 +3,12 @@ export * from './transformers/ids';
 export * from './matchers';
 export { standardTransformers } from './transformers';
 export * from './fieldReducer';
-export { FilterFieldsByNameTransformerOptions } from './transformers/filterByName';
-export { FilterFramesByRefIdTransformerOptions } from './transformers/filterByRefId';
-export { SeriesToColumnsOptions } from './transformers/seriesToColumns';
-export { ReduceTransformerOptions } from './transformers/reduce';
-export { CalculateFieldTransformerOptions } from './transformers/calculateField';
-export { OrganizeFieldsTransformerOptions } from './transformers/organize';
-export { createOrderFieldsComparer } from './transformers/order';
 export { transformDataFrame } from './transformDataFrame';
 export {
-  TransformerRegistyItem,
+  TransformerRegistryItem,
   TransformerUIProps,
   standardTransformersRegistry,
 } from './standardTransformersRegistry';
+export { RegexpOrNamesMatcherOptions, ByNamesMatcherOptions, ByNamesMatcherMode } from './matchers/nameMatcher';
+export { RenameByRegexTransformerOptions } from './transformers/renameByRegex';
+export { outerJoinDataFrames } from './transformers/joinDataFrames';

@@ -7,17 +7,23 @@ import (
 )
 
 var (
-	sortAlphaAsc = SortOption{
+	SortAlphaAsc = SortOption{
 		Name:        "alpha-asc",
-		DisplayName: "Alphabetically (A-Z)",
+		DisplayName: "Alphabetically (A–Z)",
 		Description: "Sort results in an alphabetically ascending order",
-		Filter:      searchstore.TitleSorter{},
+		Index:       0,
+		Filter: []SortOptionFilter{
+			searchstore.TitleSorter{},
+		},
 	}
-	sortAlphaDesc = SortOption{
+	SortAlphaDesc = SortOption{
 		Name:        "alpha-desc",
-		DisplayName: "Alphabetically (Z-A)",
+		DisplayName: "Alphabetically (Z–A)",
 		Description: "Sort results in an alphabetically descending order",
-		Filter:      searchstore.TitleSorter{Descending: true},
+		Index:       0,
+		Filter: []SortOptionFilter{
+			searchstore.TitleSorter{Descending: true},
+		},
 	}
 )
 
@@ -25,7 +31,13 @@ type SortOption struct {
 	Name        string
 	DisplayName string
 	Description string
-	Filter      searchstore.FilterOrderBy
+	Index       int
+	MetaName    string
+	Filter      []SortOptionFilter
+}
+
+type SortOptionFilter interface {
+	searchstore.FilterOrderBy
 }
 
 // RegisterSortOption allows for hooking in more search options from
@@ -40,7 +52,7 @@ func (s *SearchService) SortOptions() []SortOption {
 		opts = append(opts, o)
 	}
 	sort.Slice(opts, func(i, j int) bool {
-		return opts[i].Name < opts[j].Name
+		return opts[i].Index < opts[j].Index || (opts[i].Index == opts[j].Index && opts[i].Name < opts[j].Name)
 	})
 	return opts
 }

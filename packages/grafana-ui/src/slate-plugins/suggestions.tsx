@@ -1,14 +1,14 @@
 import React from 'react';
-import debounce from 'lodash/debounce';
-import sortBy from 'lodash/sortBy';
+import { debounce, sortBy } from 'lodash';
 
 import { Editor as CoreEditor } from 'slate';
 import { Plugin as SlatePlugin } from '@grafana/slate-react';
 
 import TOKEN_MARK from './slate-prism/TOKEN_MARK';
 import { Typeahead } from '../components/Typeahead/Typeahead';
-import { CompletionItem, TypeaheadOutput, TypeaheadInput, SuggestionsState } from '../types/completion';
-import { makeFragment } from '../utils/slate';
+import { CompletionItem, SuggestionsState, TypeaheadInput, TypeaheadOutput } from '../types';
+import { makeFragment, SearchFunctionType } from '../utils';
+import { SearchFunctionMap } from '../utils/searchFunctions';
 
 export const TYPEAHEAD_DEBOUNCE = 250;
 
@@ -97,7 +97,15 @@ export function SuggestionsPlugin({
 
           break;
 
-        case 'Enter':
+        case 'Enter': {
+          if (!(keyEvent.shiftKey || keyEvent.ctrlKey) && hasSuggestions) {
+            keyEvent.preventDefault();
+            return typeaheadRef.insertSuggestion();
+          }
+
+          break;
+        }
+
         case 'Tab': {
           if (hasSuggestions) {
             keyEvent.preventDefault();
@@ -108,7 +116,10 @@ export function SuggestionsPlugin({
         }
 
         default: {
-          handleTypeaheadDebounced(editor, setState, onTypeahead, cleanText);
+          // Don't react on meta keys
+          if (keyEvent.key.length === 1) {
+            handleTypeaheadDebounced(editor, setState, onTypeahead, cleanText);
+          }
           break;
         }
       }
@@ -157,11 +168,7 @@ export function SuggestionsPlugin({
         // If new-lines, apply suggestion as block
         if (suggestionText.match(/\n/)) {
           const fragment = makeFragment(suggestionText);
-          return editor
-            .deleteBackward(backward)
-            .deleteForward(forward)
-            .insertFragment(fragment)
-            .focus();
+          return editor.deleteBackward(backward).deleteForward(forward).insertFragment(fragment).focus();
         }
 
         state = {
@@ -178,7 +185,7 @@ export function SuggestionsPlugin({
       },
     },
 
-    renderEditor: (props, editor, next) => {
+    renderEditor(props, editor, next) {
       if (editor.value.selection.isExpanded) {
         return next();
       }
@@ -223,7 +230,7 @@ const handleTypeahead = async (
   const filteredDecorations = decorations
     ? decorations
         .filter(
-          decoration =>
+          (decoration) =>
             decoration!.start.offset <= selectionStartOffset &&
             decoration!.end.offset > selectionStartOffset &&
             decoration!.type === TOKEN_MARK
@@ -236,7 +243,7 @@ const handleTypeahead = async (
     decorations &&
     decorations
       .filter(
-        decoration =>
+        (decoration) =>
           decoration!.end.offset <= selectionStartOffset &&
           decoration!.type === TOKEN_MARK &&
           decoration!.data.get('className').includes('label-key')
@@ -246,10 +253,10 @@ const handleTypeahead = async (
   const labelKey = labelKeyDec && value.focusText.text.slice(labelKeyDec.start.offset, labelKeyDec.end.offset);
 
   const wrapperClasses = filteredDecorations
-    .map(decoration => decoration.data.get('className'))
+    .map((decoration) => decoration.data.get('className'))
     .join(' ')
     .split(' ')
-    .filter(className => className.length);
+    .filter((className) => className.length);
 
   let text = value.focusText.text;
   let prefix = text.slice(0, selection.focus.offset);
@@ -278,34 +285,42 @@ const handleTypeahead = async (
   });
 
   const filteredSuggestions = suggestions
-    .map(group => {
+    .map((group) => {
       if (!group.items) {
         return group;
       }
-
+      // Falling back to deprecated prefixMatch to support backwards compatibility with plugins using this property
+      const searchFunctionType =
+        group.searchFunctionType || (group.prefixMatch ? SearchFunctionType.Prefix : SearchFunctionType.Word);
+      const searchFunction = SearchFunctionMap[searchFunctionType];
       let newGroup = { ...group };
       if (prefix) {
         // Filter groups based on prefix
         if (!group.skipFilter) {
-          newGroup.items = newGroup.items.filter(c => (c.filterText || c.label).length >= prefix.length);
-          if (group.prefixMatch) {
-            newGroup.items = newGroup.items.filter(c => (c.filterText || c.label).startsWith(prefix));
-          } else {
-            newGroup.items = newGroup.items.filter(c => (c.filterText || c.label).includes(prefix));
-          }
+          newGroup.items = newGroup.items.filter((c) => (c.filterText || c.label).length >= prefix.length);
+          newGroup.items = searchFunction(newGroup.items, prefix);
         }
 
-        // Filter out the already typed value (prefix) unless it inserts custom text
-        newGroup.items = newGroup.items.filter(c => c.insertText || (c.filterText || c.label) !== prefix);
+        // Filter out the already typed value (prefix) unless it inserts custom text not matching the prefix
+        newGroup.items = newGroup.items.filter(
+          (c) => !(c.insertText === prefix || (c.filterText ?? c.label) === prefix)
+        );
       }
 
       if (!group.skipSort) {
-        newGroup.items = sortBy(newGroup.items, (item: CompletionItem) => item.sortText || item.label);
+        newGroup.items = sortBy(newGroup.items, (item: CompletionItem) => {
+          if (item.sortText === undefined) {
+            return item.sortValue !== undefined ? item.sortValue : item.label;
+          } else {
+            // Falling back to deprecated sortText to support backwards compatibility with plugins using this property
+            return item.sortText || item.label;
+          }
+        });
       }
 
       return newGroup;
     })
-    .filter(gr => gr.items && gr.items.length); // Filter out empty groups
+    .filter((gr) => gr.items && gr.items.length); // Filter out empty groups
 
   onStateChange({
     groupedItems: filteredSuggestions,

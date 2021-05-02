@@ -1,43 +1,45 @@
-import { SingleStatBaseOptions, BigValueColorMode, BigValueGraphMode, BigValueJustifyMode } from '@grafana/ui';
-import { ReducerID, SelectableValue, standardEditorsRegistry } from '@grafana/data';
-import { PanelOptionsEditorBuilder } from '@grafana/data';
+import {
+  SingleStatBaseOptions,
+  BigValueColorMode,
+  BigValueGraphMode,
+  BigValueJustifyMode,
+  BigValueTextMode,
+} from '@grafana/ui';
+import {
+  ReducerID,
+  standardEditorsRegistry,
+  FieldOverrideContext,
+  getFieldDisplayName,
+  escapeStringForRegex,
+  VizOrientation,
+  PanelOptionsEditorBuilder,
+} from '@grafana/data';
 
 // Structure copied from angular
 export interface StatPanelOptions extends SingleStatBaseOptions {
   graphMode: BigValueGraphMode;
   colorMode: BigValueColorMode;
   justifyMode: BigValueJustifyMode;
+  textMode: BigValueTextMode;
 }
 
-export const colorModes: Array<SelectableValue<BigValueColorMode>> = [
-  { value: BigValueColorMode.Value, label: 'Value' },
-  { value: BigValueColorMode.Background, label: 'Background' },
-];
-
-export const graphModes: Array<SelectableValue<BigValueGraphMode>> = [
-  { value: BigValueGraphMode.None, label: 'None' },
-  { value: BigValueGraphMode.Area, label: 'Area graph' },
-];
-
-export const justifyModes: Array<SelectableValue<BigValueJustifyMode>> = [
-  { value: BigValueJustifyMode.Auto, label: 'Auto' },
-  { value: BigValueJustifyMode.Center, label: 'Center' },
-];
-
-export function addStandardDataReduceOptions(
-  builder: PanelOptionsEditorBuilder<SingleStatBaseOptions>,
-  includeOrientation = true
+export function addStandardDataReduceOptions<T extends SingleStatBaseOptions>(
+  builder: PanelOptionsEditorBuilder<T>,
+  includeFieldMatcher = true
 ) {
+  const valueOptionsCategory = ['Value options'];
+
   builder.addRadio({
     path: 'reduceOptions.values',
     name: 'Show',
-    description: 'Calculate a single value per colum or series or show each row',
+    description: 'Calculate a single value per column or series or show each row',
     settings: {
       options: [
         { value: false, label: 'Calculate' },
         { value: true, label: 'All values' },
       ],
     },
+    category: valueOptionsCategory,
     defaultValue: false,
   });
 
@@ -45,37 +47,103 @@ export function addStandardDataReduceOptions(
     path: 'reduceOptions.limit',
     name: 'Limit',
     description: 'Max number of rows to display',
+    category: valueOptionsCategory,
     settings: {
       placeholder: '5000',
       integer: true,
       min: 1,
       max: 5000,
     },
-    showIf: options => options.reduceOptions.values === true,
+    showIf: (options) => options.reduceOptions.values === true,
   });
 
   builder.addCustomEditor({
     id: 'reduceOptions.calcs',
     path: 'reduceOptions.calcs',
-    name: 'Value',
+    name: 'Calculation',
     description: 'Choose a reducer function / calculation',
+    category: valueOptionsCategory,
     editor: standardEditorsRegistry.get('stats-picker').editor as any,
-    defaultValue: [ReducerID.mean],
+    defaultValue: [ReducerID.lastNotNull],
+    // Hides it when all values mode is on
+    showIf: (currentConfig) => currentConfig.reduceOptions.values === false,
   });
 
-  if (includeOrientation) {
-    builder.addRadio({
-      path: 'orientation',
-      name: 'Orientation',
-      description: 'Stacking direction in case of multiple series or fields',
+  if (includeFieldMatcher) {
+    builder.addSelect({
+      path: 'reduceOptions.fields',
+      name: 'Fields',
+      description: 'Select the fields that should be included in the panel',
+      category: valueOptionsCategory,
       settings: {
-        options: [
-          { value: 'auto', label: 'Auto' },
-          { value: 'horizontal', label: 'Horizontal' },
-          { value: 'vertical', label: 'Vertical' },
-        ],
+        allowCustomValue: true,
+        options: [],
+        getOptions: async (context: FieldOverrideContext) => {
+          const options = [
+            { value: '', label: 'Numeric Fields' },
+            { value: '/.*/', label: 'All Fields' },
+          ];
+          if (context && context.data) {
+            for (const frame of context.data) {
+              for (const field of frame.fields) {
+                const name = getFieldDisplayName(field, frame, context.data);
+                const value = `/^${escapeStringForRegex(name)}$/`;
+                options.push({ value, label: name });
+              }
+            }
+          }
+          return Promise.resolve(options);
+        },
       },
-      defaultValue: 'auto',
+      defaultValue: '',
     });
   }
+}
+
+export function addOrientationOption<T extends SingleStatBaseOptions>(
+  builder: PanelOptionsEditorBuilder<T>,
+  category?: string[]
+) {
+  builder.addRadio({
+    path: 'orientation',
+    name: 'Orientation',
+    description: 'Layout orientation',
+    category,
+    settings: {
+      options: [
+        { value: VizOrientation.Auto, label: 'Auto' },
+        { value: VizOrientation.Horizontal, label: 'Horizontal' },
+        { value: VizOrientation.Vertical, label: 'Vertical' },
+      ],
+    },
+    defaultValue: VizOrientation.Auto,
+  });
+}
+
+export function addTextSizeOptions<T extends SingleStatBaseOptions>(builder: PanelOptionsEditorBuilder<T>) {
+  builder.addNumberInput({
+    path: 'text.titleSize',
+    category: ['Text size'],
+    name: 'Title',
+    settings: {
+      placeholder: 'Auto',
+      integer: false,
+      min: 1,
+      max: 200,
+    },
+    defaultValue: undefined,
+  });
+
+  builder.addNumberInput({
+    path: 'text.valueSize',
+    category: ['Text size'],
+    name: 'Value',
+    settings: {
+      placeholder: 'Auto',
+      integer: false,
+      min: 1,
+      max: 200,
+    },
+    defaultValue: undefined,
+  });
 }

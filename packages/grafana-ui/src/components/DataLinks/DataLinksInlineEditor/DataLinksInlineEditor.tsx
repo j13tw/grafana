@@ -1,43 +1,62 @@
-import { DataFrame, DataLink, GrafanaTheme, VariableSuggestion } from '@grafana/data';
+import { DataFrame, DataLink, GrafanaThemeV2, VariableSuggestion } from '@grafana/data';
 import React, { useState } from 'react';
-import { css } from 'emotion';
+import { css } from '@emotion/css';
 import { Button } from '../../Button/Button';
-import cloneDeep from 'lodash/cloneDeep';
+import { cloneDeep } from 'lodash';
 import { Modal } from '../../Modal/Modal';
-import { stylesFactory, useTheme } from '../../../themes';
+import { stylesFactory, useTheme2 } from '../../../themes';
 import { DataLinksListItem } from './DataLinksListItem';
 import { DataLinkEditorModalContent } from './DataLinkEditorModalContent';
 
 interface DataLinksInlineEditorProps {
   links?: DataLink[];
   onChange: (links: DataLink[]) => void;
-  suggestions: VariableSuggestion[];
+  getSuggestions: () => VariableSuggestion[];
   data: DataFrame[];
 }
 
-export const DataLinksInlineEditor: React.FC<DataLinksInlineEditorProps> = ({ links, onChange, suggestions, data }) => {
-  const theme = useTheme();
+export const DataLinksInlineEditor: React.FC<DataLinksInlineEditorProps> = ({
+  links,
+  onChange,
+  getSuggestions,
+  data,
+}) => {
+  const theme = useTheme2();
   const [editIndex, setEditIndex] = useState<number | null>(null);
+  const [isNew, setIsNew] = useState(false);
+
   const styles = getDataLinksInlineEditorStyles(theme);
   const linksSafe: DataLink[] = links ?? [];
-  const isEditing = editIndex !== null && linksSafe[editIndex] !== undefined;
+  const isEditing = editIndex !== null;
 
   const onDataLinkChange = (index: number, link: DataLink) => {
+    if (isNew) {
+      if (link.title.trim() === '' && link.url.trim() === '') {
+        setIsNew(false);
+        setEditIndex(null);
+        return;
+      } else {
+        setEditIndex(null);
+        setIsNew(false);
+      }
+    }
     const update = cloneDeep(linksSafe);
     update[index] = link;
     onChange(update);
+    setEditIndex(null);
   };
 
   const onDataLinkAdd = () => {
     let update = cloneDeep(linksSafe);
+    setEditIndex(update.length);
+    setIsNew(true);
+  };
 
-    update.push({
-      title: '',
-      url: '',
-    });
-
-    setEditIndex(update.length - 1);
-    onChange(update);
+  const onDataLinkCancel = (index: number) => {
+    if (isNew) {
+      setIsNew(false);
+    }
+    setEditIndex(null);
   };
 
   const onDataLinkRemove = (index: number) => {
@@ -60,7 +79,6 @@ export const DataLinksInlineEditor: React.FC<DataLinksInlineEditorProps> = ({ li
                 onEdit={() => setEditIndex(i)}
                 onRemove={() => onDataLinkRemove(i)}
                 data={data}
-                suggestions={suggestions}
               />
             );
           })}
@@ -72,16 +90,16 @@ export const DataLinksInlineEditor: React.FC<DataLinksInlineEditorProps> = ({ li
           title="Edit link"
           isOpen={true}
           onDismiss={() => {
-            setEditIndex(null);
+            onDataLinkCancel(editIndex);
           }}
         >
           <DataLinkEditorModalContent
             index={editIndex}
-            link={linksSafe[editIndex]}
+            link={isNew ? { title: '', url: '' } : linksSafe[editIndex]}
             data={data}
-            onChange={onDataLinkChange}
-            onClose={() => setEditIndex(null)}
-            suggestions={suggestions}
+            onSave={onDataLinkChange}
+            onCancel={onDataLinkCancel}
+            getSuggestions={getSuggestions}
           />
         </Modal>
       )}
@@ -93,10 +111,10 @@ export const DataLinksInlineEditor: React.FC<DataLinksInlineEditorProps> = ({ li
   );
 };
 
-const getDataLinksInlineEditorStyles = stylesFactory((theme: GrafanaTheme) => {
+const getDataLinksInlineEditorStyles = stylesFactory((theme: GrafanaThemeV2) => {
   return {
     wrapper: css`
-      margin-bottom: ${theme.spacing.md};
+      margin-bottom: ${theme.spacing(2)};
     `,
   };
 });

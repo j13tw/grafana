@@ -15,7 +15,7 @@ For more information on developing for the backend:
 | /pkg/cmd | The binaries that we build: grafana-server and grafana-cli. |
 | /pkg/components | A mix of third-party packages and packages we have implemented ourselves. Includes our packages that have out-grown the util package and don't naturally belong somewhere else. |
 | /pkg/infra | Packages in infra should be packages that are used in multiple places in Grafana without knowing anything about the Grafana domain. |
-| /pkg/services | Packages in services are responsible for peristing domain objects and manage the relationship between domain objects. Services should communicate with each other using DI when possible. Most of Grafana's codebase still relies on global state for this. Any new features going forward should use DI. |
+| /pkg/services | Packages in services are responsible for persisting domain objects and manage the relationship between domain objects. Services should communicate with each other using DI when possible. Most of Grafana's codebase still relies on global state for this. Any new features going forward should use DI. |
 | /pkg/tsdb | All backend implementations of the data sources in Grafana. Used by both Grafana's frontend and alerting. |
 | /pkg/util | Small helper functions that are used in multiple parts of the codebase. Many functions are placed directly in the util folders which is something we want to avoid. Its better to give the util function a more descriptive package name. Ex `errutil`. |
 
@@ -23,7 +23,7 @@ For more information on developing for the backend:
 
 | package | description |
 | ------- | ----------- |
-| /pkg/bus | The bus is described in more details under [Communication](/contribute/architecture/communication.md) |
+| /pkg/bus | The bus is described in more details under [Communication](/contribute/architecture/backend/communication.md) |
 | /pkg/models | This is where we keep our domain model. This package should not depend on any package outside standard library. It does contain some references within Grafana but that is something we should avoid going forward. |
 | /pkg/registry | Package for managing services. |
 | /pkg/services/alerting | Grafana's alerting services. The alerting engine runs in a separate goroutine and shouldn't depend on anything else within Grafana. |
@@ -70,6 +70,10 @@ Refactor HTTP handlers so that the handler methods are on the HttpServer instanc
 ### Date comparison
 
 Store newly introduced date columns in the database as epochs if they require date comparison. This permits a unified approach for comparing dates against all the supported databases instead of handling dates differently for each database. Also, by comparing epochs, we no longer need error pruning transformations to and from other time zones.
+
+### Avoid use of the simplejson package
+
+Use of the `simplejson` package (`pkg/components/simplejson`) in place of types (Go structs) results in code that is difficult to maintain. Instead, create types for objects and use the Go standard library's [`encoding/json`](https://golang.org/pkg/encoding/json/) package.
 
 ### Provisionable*
 

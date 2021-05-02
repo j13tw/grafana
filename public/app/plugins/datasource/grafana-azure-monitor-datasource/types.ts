@@ -1,13 +1,26 @@
-import { DataQuery, DataSourceJsonData, DataSourceSettings } from '@grafana/data';
+import { DataQuery, DataSourceJsonData, DataSourceSettings, TableData } from '@grafana/data';
+import Datasource from './datasource';
 
 export type AzureDataSourceSettings = DataSourceSettings<AzureDataSourceJsonData, AzureDataSourceSecureJsonData>;
 
+export type AzureResultFormat = 'time_series' | 'table';
+
+export enum AzureQueryType {
+  AzureMonitor = 'Azure Monitor',
+  ApplicationInsights = 'Application Insights',
+  InsightsAnalytics = 'Insights Analytics',
+  LogAnalytics = 'Azure Log Analytics',
+}
+
 export interface AzureMonitorQuery extends DataQuery {
+  queryType: AzureQueryType;
   format: string;
   subscription: string;
+
   azureMonitor: AzureMetricQuery;
   azureLogAnalytics: AzureLogsQuery;
-  appInsights: ApplicationInsightsQuery;
+  appInsights?: ApplicationInsightsQuery;
+  insightsAnalytics: InsightsAnalyticsQuery;
 }
 
 export interface AzureDataSourceJsonData extends DataSourceJsonData {
@@ -35,18 +48,23 @@ export interface AzureDataSourceSecureJsonData {
   appInsightsApiKey?: string;
 }
 
+export interface AzureMetricDimension {
+  dimension: string;
+  operator: 'eq'; // future proof
+  filter?: string; // *
+}
+
 export interface AzureMetricQuery {
-  resourceGroup: string;
-  resourceName: string;
-  metricDefinition: string;
-  metricNamespace: string;
-  metricName: string;
-  timeGrainUnit: string;
+  resourceGroup: string | undefined;
+  resourceName: string | undefined;
+  metricDefinition: string | undefined;
+  metricNamespace: string | undefined;
+  metricName: string | undefined;
+  timeGrainUnit?: string;
   timeGrain: string;
   allowedTimeGrainsMs: number[];
-  aggregation: string;
-  dimension: string;
-  dimensionFilter: string;
+  aggregation: string | undefined;
+  dimensionFilters: AzureMetricDimension[];
   alias: string;
   top: string;
 }
@@ -58,19 +76,51 @@ export interface AzureLogsQuery {
 }
 
 export interface ApplicationInsightsQuery {
-  rawQuery: boolean;
-  rawQueryString: any;
   metricName: string;
   timeGrainUnit: string;
   timeGrain: string;
   allowedTimeGrainsMs: number[];
   aggregation: string;
-  dimension: string;
+  dimension: string[]; // Was string before 7.1
+  // dimensions: string[]; why is this metadata stored on the object!
   dimensionFilter: string;
   alias: string;
 }
 
+export interface InsightsAnalyticsQuery {
+  query: string;
+  resultFormat: string;
+}
+
+// Represents an errors that come back from frontend requests.
+// Not totally sure how accurate this type is.
+export type AzureMonitorErrorish = Error;
+
 // Azure Monitor API Types
+
+export interface AzureMonitorMetricsMetadataResponse {
+  value: AzureMonitorMetricMetadataItem[];
+}
+
+export interface AzureMonitorMetricMetadataItem {
+  id: string;
+  resourceId: string;
+  primaryAggregationType: string;
+  supportedAggregationTypes: string[];
+  name: AzureMonitorLocalizedValue;
+  dimensions?: AzureMonitorLocalizedValue[];
+  metricAvailabilities?: AzureMonitorMetricAvailabilityMetadata[];
+}
+
+export interface AzureMonitorMetricAvailabilityMetadata {
+  timeGrain: string;
+  retention: string;
+}
+
+export interface AzureMonitorLocalizedValue {
+  value: string;
+  localizedValue: string;
+}
 
 export interface AzureMonitorMetricDefinitionsResponse {
   data: {
@@ -124,17 +174,28 @@ export interface AzureLogsVariable {
   value: string;
 }
 
-export interface AzureLogsTableData {
+export interface AzureLogsTableData extends TableData {
   columns: AzureLogsTableColumn[];
   rows: any[];
   type: string;
-  refId: string;
-  meta: {
-    query: string;
-  };
 }
 
 export interface AzureLogsTableColumn {
   text: string;
   type: string;
+}
+
+export interface AzureMonitorOption<T = string> {
+  label: string;
+  value: T;
+}
+
+export interface AzureQueryEditorFieldProps {
+  query: AzureMonitorQuery;
+  datasource: Datasource;
+  subscriptionId: string;
+  variableOptionGroup: { label: string; options: AzureMonitorOption[] };
+
+  onQueryChange: (newQuery: AzureMonitorQuery) => void;
+  setError: (source: string, error: AzureMonitorErrorish | undefined) => void;
 }

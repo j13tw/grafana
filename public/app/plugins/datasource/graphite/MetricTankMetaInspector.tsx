@@ -1,12 +1,11 @@
-import { css, cx } from 'emotion';
+import { css, cx } from '@emotion/css';
 import React, { PureComponent } from 'react';
-import { MetadataInspectorProps } from '@grafana/data';
+import { MetadataInspectorProps, rangeUtil } from '@grafana/data';
 import { GraphiteDatasource } from './datasource';
 import { GraphiteQuery, GraphiteOptions, MetricTankSeriesMeta } from './types';
 import { parseSchemaRetentions, getRollupNotice, getRuntimeConsolidationNotice } from './meta';
 import { stylesFactory } from '@grafana/ui';
 import { config } from 'app/core/config';
-import kbn from 'app/core/utils/kbn';
 
 export type Props = MetadataInspectorProps<GraphiteDatasource, GraphiteQuery, GraphiteOptions>;
 
@@ -20,13 +19,12 @@ export class MetricTankMetaInspector extends PureComponent<Props, State> {
     const buckets = parseSchemaRetentions(meta['schema-retentions']);
     const rollupNotice = getRollupNotice([meta]);
     const runtimeNotice = getRuntimeConsolidationNotice([meta]);
-    const normFunc = (meta['consolidator-normfetch'] || '').replace('Consolidator', '');
+    const normFunc = (meta['consolidator-normfetch'] ?? '').replace('Consolidator', '');
 
-    let totalSeconds = 0;
-
-    for (const bucket of buckets) {
-      totalSeconds += kbn.interval_to_seconds(bucket.retention);
-    }
+    const totalSeconds = buckets.reduce(
+      (acc, bucket) => acc + (bucket.retention ? rangeUtil.intervalToSeconds(bucket.retention) : 0),
+      0
+    );
 
     return (
       <div className={styles.metaItem} key={key}>
@@ -46,7 +44,7 @@ export class MetricTankMetaInspector extends PureComponent<Props, State> {
 
             <div>
               {buckets.map((bucket, index) => {
-                const bucketLength = kbn.interval_to_seconds(bucket.retention);
+                const bucketLength = bucket.retention ? rangeUtil.intervalToSeconds(bucket.retention) : 0;
                 const lengthPercent = (bucketLength / totalSeconds) * 100;
                 const isActive = index === meta['archive-read'];
 
@@ -99,7 +97,7 @@ export class MetricTankMetaInspector extends PureComponent<Props, State> {
       if (series.meta && series.meta.custom) {
         for (const metaItem of series.meta.custom.seriesMetaList as MetricTankSeriesMeta[]) {
           // key is to dedupe as many series will have identitical meta
-          const key = `${metaItem['schema-name']}-${metaItem['archive-read']}`;
+          const key = `${JSON.stringify(metaItem)}`;
 
           if (seriesMetas[key]) {
             seriesMetas[key].count += metaItem.count;
@@ -117,7 +115,7 @@ export class MetricTankMetaInspector extends PureComponent<Props, State> {
     return (
       <div>
         <h2 className="page-heading">Metrictank Lineage</h2>
-        {Object.keys(seriesMetas).map(key => this.renderMeta(seriesMetas[key], key))}
+        {Object.keys(seriesMetas).map((key) => this.renderMeta(seriesMetas[key], key))}
       </div>
     );
   }

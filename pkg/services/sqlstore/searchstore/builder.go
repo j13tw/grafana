@@ -20,8 +20,8 @@ type Builder struct {
 	sql    bytes.Buffer
 }
 
-// ToSql builds the SQL query and returns it as a string, together with the SQL parameters.
-func (b *Builder) ToSql(limit, page int64) (string, []interface{}) {
+// ToSQL builds the SQL query and returns it as a string, together with the SQL parameters.
+func (b *Builder) ToSQL(limit, page int64) (string, []interface{}) {
 	b.params = make([]interface{}, 0)
 	b.sql = bytes.Buffer{}
 
@@ -55,8 +55,15 @@ func (b *Builder) buildSelect() {
 			dashboard.folder_id,
 			folder.uid AS folder_uid,
 			folder.slug AS folder_slug,
-			folder.title AS folder_title
-		FROM `)
+			folder.title AS folder_title `)
+
+	for _, f := range b.Filters {
+		if f, ok := f.(FilterSelect); ok {
+			b.sql.WriteString(fmt.Sprintf(", %s", f.Select()))
+		}
+	}
+
+	b.sql.WriteString(` FROM `)
 }
 
 func (b *Builder) applyFilters() (ordering string) {
@@ -113,13 +120,14 @@ func (b *Builder) applyFilters() (ordering string) {
 		b.params = append(b.params, groupParams...)
 	}
 
-	if len(orders) > 0 {
-		orderBy := fmt.Sprintf(" ORDER BY %s", strings.Join(orders, ", "))
-		b.sql.WriteString(orderBy)
-
-		order := strings.Join(orderJoins, "")
-		order += orderBy
-		return order
+	if len(orders) < 1 {
+		orders = append(orders, TitleSorter{}.OrderBy())
 	}
-	return " ORDER BY dashboard.id"
+
+	orderBy := fmt.Sprintf(" ORDER BY %s", strings.Join(orders, ", "))
+	b.sql.WriteString(orderBy)
+
+	order := strings.Join(orderJoins, "")
+	order += orderBy
+	return order
 }

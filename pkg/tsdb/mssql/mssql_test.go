@@ -10,11 +10,14 @@ import (
 
 	"github.com/grafana/grafana/pkg/components/securejsondata"
 	"github.com/grafana/grafana/pkg/components/simplejson"
+	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/models"
+	"github.com/grafana/grafana/pkg/plugins"
 	"github.com/grafana/grafana/pkg/services/sqlstore/sqlutil"
-	"github.com/grafana/grafana/pkg/tsdb"
 	"github.com/grafana/grafana/pkg/tsdb/sqleng"
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"xorm.io/xorm"
 )
 
@@ -23,14 +26,14 @@ import (
 // Use the docker/blocks/mssql_tests/docker-compose.yaml to spin up a
 // preconfigured MSSQL server suitable for running these tests.
 // There is also a datasource and dashboard provisioned by devenv scripts that you can
-// use to verify that the generated data are vizualized as expected, see
+// use to verify that the generated data are visualized as expected, see
 // devenv/README.md for setup instructions.
 // If needed, change the variable below to the IP address of the database.
 var serverIP = "localhost"
 
 func TestMSSQL(t *testing.T) {
 	SkipConvey("MSSQL", t, func() {
-		x := InitMSSQLTestDB(t)
+		x := initMSSQLTestDB(t)
 
 		origXormEngine := sqleng.NewXormEngine
 		sqleng.NewXormEngine = func(d, c string) (*xorm.Engine, error) {
@@ -38,11 +41,11 @@ func TestMSSQL(t *testing.T) {
 		}
 
 		origInterpolate := sqleng.Interpolate
-		sqleng.Interpolate = func(query *tsdb.Query, timeRange *tsdb.TimeRange, sql string) (string, error) {
+		sqleng.Interpolate = func(query plugins.DataSubQuery, timeRange plugins.DataTimeRange, sql string) (string, error) {
 			return sql, nil
 		}
 
-		endpoint, err := newMssqlQueryEndpoint(&models.DataSource{
+		endpoint, err := NewExecutor(&models.DataSource{
 			JsonData:       simplejson.New(),
 			SecureJsonData: securejsondata.SecureJsonData{},
 		})
@@ -90,7 +93,9 @@ func TestMSSQL(t *testing.T) {
 						c_smalldatetime smalldatetime,
 						c_date date,
 						c_time time,
-						c_datetimeoffset datetimeoffset
+						c_datetimeoffset datetimeoffset,
+
+						c_uuid uniqueidentifier
 					)
 				`
 
@@ -103,6 +108,7 @@ func TestMSSQL(t *testing.T) {
 			dt2 := time.Date(2018, 3, 14, 21, 20, 6, 8896406e2, time.UTC)
 			dt2Format := "2006-01-02 15:04:05.999999999 -07:00"
 			d2 := dt2.Format(dt2Format)
+			uuid := "B33D42A3-AC5A-4D4C-81DD-72F3D5C49025"
 
 			sql = fmt.Sprintf(`
 				INSERT INTO [mssql_types]
@@ -111,26 +117,27 @@ func TestMSSQL(t *testing.T) {
 		    1.11, 2.22, 3.33,
 					'char10', 'varchar10', 'text',
 					N'☺nchar12☺', N'☺nvarchar12☺', N'☺text☺',
-					CAST('%s' AS DATETIME), CAST('%s' AS DATETIME2), CAST('%s' AS SMALLDATETIME), CAST('%s' AS DATE), CAST('%s' AS TIME), SWITCHOFFSET(CAST('%s' AS DATETIMEOFFSET), '-07:00')
-		`, d, d2, d, d, d, d2)
+					CAST('%s' AS DATETIME), CAST('%s' AS DATETIME2), CAST('%s' AS SMALLDATETIME), CAST('%s' AS DATE), CAST('%s' AS TIME), SWITCHOFFSET(CAST('%s' AS DATETIMEOFFSET), '-07:00'),
+					CONVERT(uniqueidentifier, '%s')
+		`, d, d2, d, d, d, d2, uuid)
 
 			_, err = sess.Exec(sql)
 			So(err, ShouldBeNil)
 
 			Convey("When doing a table query should map MSSQL column types to Go types", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": "SELECT * FROM mssql_types",
 								"format": "table",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				queryResult := resp.Results["A"]
 				So(err, ShouldBeNil)
 
@@ -164,6 +171,8 @@ func TestMSSQL(t *testing.T) {
 				So(column[20].(time.Time), ShouldEqual, dt.Truncate(24*time.Hour))
 				So(column[21].(time.Time), ShouldEqual, time.Date(1, 1, 1, dt.Hour(), dt.Minute(), dt.Second(), dt.Nanosecond(), time.UTC))
 				So(column[22].(time.Time), ShouldEqual, dt2.In(time.FixedZone("UTC-7", int(-7*60*60))))
+
+				So(column[23].(string), ShouldEqual, uuid)
 			})
 		})
 
@@ -208,19 +217,19 @@ func TestMSSQL(t *testing.T) {
 			So(err, ShouldBeNil)
 
 			Convey("When doing a metric query using timeGroup", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": "SELECT $__timeGroup(time, '5m') AS time, avg(value) as value FROM metric GROUP BY $__timeGroup(time, '5m') ORDER BY 1",
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
@@ -251,23 +260,23 @@ func TestMSSQL(t *testing.T) {
 			})
 
 			Convey("When doing a metric query using timeGroup with NULL fill enabled", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": "SELECT $__timeGroup(time, '5m', NULL) AS time, avg(value) as value FROM metric GROUP BY $__timeGroup(time, '5m') ORDER BY 1",
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
-					TimeRange: &tsdb.TimeRange{
+					TimeRange: &plugins.DataTimeRange{
 						From: fmt.Sprintf("%v", fromStart.Unix()*1000),
 						To:   fmt.Sprintf("%v", fromStart.Add(34*time.Minute).Unix()*1000),
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
@@ -300,7 +309,6 @@ func TestMSSQL(t *testing.T) {
 				}
 
 				So(points[6][0].Valid, ShouldBeFalse)
-
 			})
 
 			Convey("When doing a metric query using timeGroup and $__interval", func() {
@@ -312,49 +320,49 @@ func TestMSSQL(t *testing.T) {
 				})
 
 				Convey("Should replace $__interval", func() {
-					query := &tsdb.TsdbQuery{
-						Queries: []*tsdb.Query{
+					query := plugins.DataQuery{
+						Queries: []plugins.DataSubQuery{
 							{
 								DataSource: &models.DataSource{},
 								Model: simplejson.NewFromAny(map[string]interface{}{
 									"rawSql": "SELECT $__timeGroup(time, $__interval) AS time, avg(value) as value FROM metric GROUP BY $__timeGroup(time, $__interval) ORDER BY 1",
 									"format": "time_series",
 								}),
-								RefId: "A",
+								RefID: "A",
 							},
 						},
-						TimeRange: &tsdb.TimeRange{
+						TimeRange: &plugins.DataTimeRange{
 							From: fmt.Sprintf("%v", fromStart.Unix()*1000),
 							To:   fmt.Sprintf("%v", fromStart.Add(30*time.Minute).Unix()*1000),
 						},
 					}
 
-					resp, err := endpoint.Query(context.Background(), nil, query)
+					resp, err := endpoint.DataQuery(context.Background(), nil, query)
 					So(err, ShouldBeNil)
 					queryResult := resp.Results["A"]
 					So(queryResult.Error, ShouldBeNil)
-					So(queryResult.Meta.Get("sql").MustString(), ShouldEqual, "SELECT FLOOR(DATEDIFF(second, '1970-01-01', time)/60)*60 AS time, avg(value) as value FROM metric GROUP BY FLOOR(DATEDIFF(second, '1970-01-01', time)/60)*60 ORDER BY 1")
+					So(queryResult.Meta.Get(sqleng.MetaKeyExecutedQueryString).MustString(), ShouldEqual, "SELECT FLOOR(DATEDIFF(second, '1970-01-01', time)/60)*60 AS time, avg(value) as value FROM metric GROUP BY FLOOR(DATEDIFF(second, '1970-01-01', time)/60)*60 ORDER BY 1")
 				})
 			})
 
 			Convey("When doing a metric query using timeGroup with float fill enabled", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": "SELECT $__timeGroup(time, '5m', 1.5) AS time, avg(value) as value FROM metric GROUP BY $__timeGroup(time, '5m') ORDER BY 1",
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
-					TimeRange: &tsdb.TimeRange{
+					TimeRange: &plugins.DataTimeRange{
 						From: fmt.Sprintf("%v", fromStart.Unix()*1000),
 						To:   fmt.Sprintf("%v", fromStart.Add(34*time.Minute).Unix()*1000),
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
@@ -432,19 +440,19 @@ func TestMSSQL(t *testing.T) {
 			So(err, ShouldBeNil)
 
 			Convey("When doing a metric query using epoch (int64) as time column and value column (int64) should return metric with time in milliseconds", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": `SELECT TOP 1 timeInt64 as time, timeInt64 FROM metric_values ORDER BY time`,
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
@@ -454,19 +462,19 @@ func TestMSSQL(t *testing.T) {
 			})
 
 			Convey("When doing a metric query using epoch (int64 nullable) as time column and value column (int64 nullable) should return metric with time in milliseconds", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": `SELECT TOP 1 timeInt64Nullable as time, timeInt64Nullable FROM metric_values ORDER BY time`,
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
@@ -476,19 +484,19 @@ func TestMSSQL(t *testing.T) {
 			})
 
 			Convey("When doing a metric query using epoch (float64) as time column and value column (float64) should return metric with time in milliseconds", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": `SELECT TOP 1 timeFloat64 as time, timeFloat64 FROM metric_values ORDER BY time`,
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
@@ -498,19 +506,19 @@ func TestMSSQL(t *testing.T) {
 			})
 
 			Convey("When doing a metric query using epoch (float64 nullable) as time column and value column (float64 nullable) should return metric with time in milliseconds", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": `SELECT TOP 1 timeFloat64Nullable as time, timeFloat64Nullable FROM metric_values ORDER BY time`,
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
@@ -520,19 +528,19 @@ func TestMSSQL(t *testing.T) {
 			})
 
 			Convey("When doing a metric query using epoch (int32) as time column and value column (int32) should return metric with time in milliseconds", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": `SELECT TOP 1 timeInt32 as time, timeInt32 FROM metric_values ORDER BY time`,
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
@@ -542,19 +550,19 @@ func TestMSSQL(t *testing.T) {
 			})
 
 			Convey("When doing a metric query using epoch (int32 nullable) as time column and value column (int32 nullable) should return metric with time in milliseconds", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": `SELECT TOP 1 timeInt32Nullable as time, timeInt32Nullable FROM metric_values ORDER BY time`,
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
@@ -564,19 +572,19 @@ func TestMSSQL(t *testing.T) {
 			})
 
 			Convey("When doing a metric query using epoch (float32) as time column and value column (float32) should return metric with time in milliseconds", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": `SELECT TOP 1 timeFloat32 as time, timeFloat32 FROM metric_values ORDER BY time`,
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
@@ -586,19 +594,19 @@ func TestMSSQL(t *testing.T) {
 			})
 
 			Convey("When doing a metric query using epoch (float32 nullable) as time column and value column (float32 nullable) should return metric with time in milliseconds", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": `SELECT TOP 1 timeFloat32Nullable as time, timeFloat32Nullable FROM metric_values ORDER BY time`,
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
@@ -608,19 +616,19 @@ func TestMSSQL(t *testing.T) {
 			})
 
 			Convey("When doing a metric query grouping by time and select metric column should return correct series", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": "SELECT $__timeEpoch(time), measurement + ' - value one' as metric, valueOne FROM metric_values ORDER BY 1",
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
@@ -631,19 +639,19 @@ func TestMSSQL(t *testing.T) {
 			})
 
 			Convey("When doing a metric query grouping by time should return correct series", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": "SELECT $__timeEpoch(time), valueOne, valueTwo FROM metric_values ORDER BY 1",
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
@@ -654,19 +662,19 @@ func TestMSSQL(t *testing.T) {
 			})
 
 			Convey("When doing a metric query with metric column and multiple value columns", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": "SELECT $__timeEpoch(time), measurement, valueOne, valueTwo FROM metric_values ORDER BY 1",
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
@@ -680,26 +688,26 @@ func TestMSSQL(t *testing.T) {
 
 			Convey("When doing a query with timeFrom,timeTo,unixEpochFrom,unixEpochTo macros", func() {
 				sqleng.Interpolate = origInterpolate
-				query := &tsdb.TsdbQuery{
-					TimeRange: tsdb.NewFakeTimeRange("5m", "now", fromStart),
-					Queries: []*tsdb.Query{
+				timeRange := plugins.DataTimeRange{From: "5m", To: "now", Now: fromStart}
+				query := plugins.DataQuery{
+					TimeRange: &timeRange,
+					Queries: []plugins.DataSubQuery{
 						{
 							DataSource: &models.DataSource{JsonData: simplejson.New()},
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": `SELECT time FROM metric_values WHERE time > $__timeFrom() OR time < $__timeFrom() OR 1 < $__unixEpochFrom() OR $__unixEpochTo() > 1 ORDER BY 1`,
 								"format": "time_series",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
-				So(queryResult.Meta.Get("sql").MustString(), ShouldEqual, "SELECT time FROM metric_values WHERE time > '2018-03-15T12:55:00Z' OR time < '2018-03-15T12:55:00Z' OR 1 < 1521118500 OR 1521118800 > 1 ORDER BY 1")
-
+				So(queryResult.Meta.Get(sqleng.MetaKeyExecutedQueryString).MustString(), ShouldEqual, "SELECT time FROM metric_values WHERE time > '2018-03-15T12:55:00Z' OR time < '2018-03-15T12:55:00Z' OR 1 < 1521118500 OR 1521118800 > 1 ORDER BY 1")
 			})
 
 			Convey("Given a stored procedure that takes @from and @to in epoch time", func() {
@@ -747,8 +755,8 @@ func TestMSSQL(t *testing.T) {
 
 				Convey("When doing a metric query using stored procedure should return correct result", func() {
 					sqleng.Interpolate = origInterpolate
-					query := &tsdb.TsdbQuery{
-						Queries: []*tsdb.Query{
+					query := plugins.DataQuery{
+						Queries: []plugins.DataSubQuery{
 							{
 								DataSource: &models.DataSource{JsonData: simplejson.New()},
 								Model: simplejson.NewFromAny(map[string]interface{}{
@@ -759,16 +767,16 @@ func TestMSSQL(t *testing.T) {
 											EXEC dbo.sp_test_epoch @from, @to`,
 									"format": "time_series",
 								}),
-								RefId: "A",
+								RefID: "A",
 							},
 						},
-						TimeRange: &tsdb.TimeRange{
+						TimeRange: &plugins.DataTimeRange{
 							From: "1521117000000",
 							To:   "1521122100000",
 						},
 					}
 
-					resp, err := endpoint.Query(context.Background(), nil, query)
+					resp, err := endpoint.DataQuery(context.Background(), nil, query)
 					queryResult := resp.Results["A"]
 					So(err, ShouldBeNil)
 					So(queryResult.Error, ShouldBeNil)
@@ -826,8 +834,8 @@ func TestMSSQL(t *testing.T) {
 
 				Convey("When doing a metric query using stored procedure should return correct result", func() {
 					sqleng.Interpolate = origInterpolate
-					query := &tsdb.TsdbQuery{
-						Queries: []*tsdb.Query{
+					query := plugins.DataQuery{
+						Queries: []plugins.DataSubQuery{
 							{
 								DataSource: &models.DataSource{JsonData: simplejson.New()},
 								Model: simplejson.NewFromAny(map[string]interface{}{
@@ -838,16 +846,16 @@ func TestMSSQL(t *testing.T) {
 											EXEC dbo.sp_test_epoch @from, @to`,
 									"format": "time_series",
 								}),
-								RefId: "A",
+								RefID: "A",
 							},
 						},
-						TimeRange: &tsdb.TimeRange{
+						TimeRange: &plugins.DataTimeRange{
 							From: "1521117000000",
 							To:   "1521122100000",
 						},
 					}
 
-					resp, err := endpoint.Query(context.Background(), nil, query)
+					resp, err := endpoint.DataQuery(context.Background(), nil, query)
 					queryResult := resp.Results["A"]
 					So(err, ShouldBeNil)
 					So(queryResult.Error, ShouldBeNil)
@@ -907,46 +915,46 @@ func TestMSSQL(t *testing.T) {
 			}
 
 			Convey("When doing an annotation query of deploy events should return expected result", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": "SELECT time_sec as time, description as [text], tags FROM [event] WHERE $__unixEpochFilter(time_sec) AND tags='deploy' ORDER BY 1 ASC",
 								"format": "table",
 							}),
-							RefId: "Deploys",
+							RefID: "Deploys",
 						},
 					},
-					TimeRange: &tsdb.TimeRange{
+					TimeRange: &plugins.DataTimeRange{
 						From: fmt.Sprintf("%v", fromStart.Add(-20*time.Minute).Unix()*1000),
 						To:   fmt.Sprintf("%v", fromStart.Add(40*time.Minute).Unix()*1000),
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				queryResult := resp.Results["Deploys"]
 				So(err, ShouldBeNil)
 				So(len(queryResult.Tables[0].Rows), ShouldEqual, 3)
 			})
 
 			Convey("When doing an annotation query of ticket events should return expected result", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": "SELECT time_sec as time, description as [text], tags FROM [event] WHERE $__unixEpochFilter(time_sec) AND tags='ticket' ORDER BY 1 ASC",
 								"format": "table",
 							}),
-							RefId: "Tickets",
+							RefID: "Tickets",
 						},
 					},
-					TimeRange: &tsdb.TimeRange{
+					TimeRange: &plugins.DataTimeRange{
 						From: fmt.Sprintf("%v", fromStart.Add(-20*time.Minute).Unix()*1000),
 						To:   fmt.Sprintf("%v", fromStart.Add(40*time.Minute).Unix()*1000),
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				queryResult := resp.Results["Tickets"]
 				So(err, ShouldBeNil)
 				So(len(queryResult.Tables[0].Rows), ShouldEqual, 3)
@@ -956,8 +964,8 @@ func TestMSSQL(t *testing.T) {
 				dt := time.Date(2018, 3, 14, 21, 20, 6, 527e6, time.UTC)
 				dtFormat := "2006-01-02 15:04:05.999999999"
 
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": fmt.Sprintf(`SELECT
@@ -967,27 +975,27 @@ func TestMSSQL(t *testing.T) {
 								`, dt.Format(dtFormat)),
 								"format": "table",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
 				So(len(queryResult.Tables[0].Rows), ShouldEqual, 1)
 				columns := queryResult.Tables[0].Rows[0]
 
-				//Should be in milliseconds
+				// Should be in milliseconds
 				So(columns[0].(float64), ShouldEqual, float64(dt.UnixNano()/1e6))
 			})
 
 			Convey("When doing an annotation query with a time column in epoch second format should return ms", func() {
 				dt := time.Date(2018, 3, 14, 21, 20, 6, 527e6, time.UTC)
 
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": fmt.Sprintf(`SELECT
@@ -997,27 +1005,27 @@ func TestMSSQL(t *testing.T) {
 								`, dt.Unix()),
 								"format": "table",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
 				So(len(queryResult.Tables[0].Rows), ShouldEqual, 1)
 				columns := queryResult.Tables[0].Rows[0]
 
-				//Should be in milliseconds
+				// Should be in milliseconds
 				So(columns[0].(int64), ShouldEqual, dt.Unix()*1000)
 			})
 
 			Convey("When doing an annotation query with a time column in epoch second format (int) should return ms", func() {
 				dt := time.Date(2018, 3, 14, 21, 20, 6, 527e6, time.UTC)
 
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": fmt.Sprintf(`SELECT
@@ -1027,27 +1035,27 @@ func TestMSSQL(t *testing.T) {
 								`, dt.Unix()),
 								"format": "table",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
 				So(len(queryResult.Tables[0].Rows), ShouldEqual, 1)
 				columns := queryResult.Tables[0].Rows[0]
 
-				//Should be in milliseconds
+				// Should be in milliseconds
 				So(columns[0].(int64), ShouldEqual, dt.Unix()*1000)
 			})
 
 			Convey("When doing an annotation query with a time column in epoch millisecond format should return ms", func() {
 				dt := time.Date(2018, 3, 14, 21, 20, 6, 527e6, time.UTC)
 
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": fmt.Sprintf(`SELECT
@@ -1057,25 +1065,25 @@ func TestMSSQL(t *testing.T) {
 								`, dt.Unix()*1000),
 								"format": "table",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
 				So(len(queryResult.Tables[0].Rows), ShouldEqual, 1)
 				columns := queryResult.Tables[0].Rows[0]
 
-				//Should be in milliseconds
+				// Should be in milliseconds
 				So(columns[0].(float64), ShouldEqual, float64(dt.Unix()*1000))
 			})
 
 			Convey("When doing an annotation query with a time column holding a bigint null value should return nil", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": `SELECT
@@ -1085,25 +1093,25 @@ func TestMSSQL(t *testing.T) {
 								`,
 								"format": "table",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
 				So(len(queryResult.Tables[0].Rows), ShouldEqual, 1)
 				columns := queryResult.Tables[0].Rows[0]
 
-				//Should be in milliseconds
+				// Should be in milliseconds
 				So(columns[0], ShouldBeNil)
 			})
 
 			Convey("When doing an annotation query with a time column holding a datetime null value should return nil", func() {
-				query := &tsdb.TsdbQuery{
-					Queries: []*tsdb.Query{
+				query := plugins.DataQuery{
+					Queries: []plugins.DataSubQuery{
 						{
 							Model: simplejson.NewFromAny(map[string]interface{}{
 								"rawSql": `SELECT
@@ -1113,30 +1121,111 @@ func TestMSSQL(t *testing.T) {
 								`,
 								"format": "table",
 							}),
-							RefId: "A",
+							RefID: "A",
 						},
 					},
 				}
 
-				resp, err := endpoint.Query(context.Background(), nil, query)
+				resp, err := endpoint.DataQuery(context.Background(), nil, query)
 				So(err, ShouldBeNil)
 				queryResult := resp.Results["A"]
 				So(queryResult.Error, ShouldBeNil)
 				So(len(queryResult.Tables[0].Rows), ShouldEqual, 1)
 				columns := queryResult.Tables[0].Rows[0]
 
-				//Should be in milliseconds
+				// Should be in milliseconds
 				So(columns[0], ShouldBeNil)
 			})
 		})
 	})
 }
 
-func InitMSSQLTestDB(t *testing.T) *xorm.Engine {
-	x, err := xorm.NewEngine(sqlutil.TestDB_Mssql.DriverName, strings.Replace(sqlutil.TestDB_Mssql.ConnStr, "localhost", serverIP, 1))
-	if err != nil {
-		t.Fatalf("Failed to init mssql db %v", err)
+func TestTransformQueryError(t *testing.T) {
+	transformer := &mssqlQueryResultTransformer{
+		log: log.New("test"),
 	}
+
+	randomErr := fmt.Errorf("random error")
+
+	tests := []struct {
+		err         error
+		expectedErr error
+	}{
+		{err: fmt.Errorf("Unable to open tcp connection with host 'localhost:5000': dial tcp: connection refused"), expectedErr: sqleng.ErrConnectionFailed},
+		{err: fmt.Errorf("unable to open tcp connection with host 'localhost:5000': dial tcp: connection refused"), expectedErr: sqleng.ErrConnectionFailed},
+		{err: randomErr, expectedErr: randomErr},
+	}
+
+	for _, tc := range tests {
+		resultErr := transformer.TransformQueryError(tc.err)
+		assert.ErrorIs(t, resultErr, tc.expectedErr)
+	}
+}
+
+func TestGenerateConnectionString(t *testing.T) {
+	testCases := []struct {
+		desc       string
+		dataSource *models.DataSource
+		expConnStr string
+	}{
+		{
+			desc: "From URL w/ port",
+			dataSource: &models.DataSource{
+				Url:      "localhost:1001",
+				Database: "database",
+				User:     "user",
+				JsonData: simplejson.NewFromAny(map[string]interface{}{}),
+			},
+			expConnStr: "server=localhost;database=database;user id=user;password=;port=1001;",
+		},
+		// When no port is specified, the driver should be allowed to choose
+		{
+			desc: "From URL w/o port",
+			dataSource: &models.DataSource{
+				Url:      "localhost",
+				Database: "database",
+				User:     "user",
+				JsonData: simplejson.NewFromAny(map[string]interface{}{}),
+			},
+			expConnStr: "server=localhost;database=database;user id=user;password=;",
+		},
+		// Port 0 should be equivalent to not specifying a port, i.e. let the driver choose
+		{
+			desc: "From URL w port 0",
+			dataSource: &models.DataSource{
+				Url:      "localhost:0",
+				Database: "database",
+				User:     "user",
+				JsonData: simplejson.NewFromAny(map[string]interface{}{}),
+			},
+			expConnStr: "server=localhost;database=database;user id=user;password=;",
+		},
+		{
+			desc: "Defaults",
+			dataSource: &models.DataSource{
+				Database: "database",
+				User:     "user",
+				JsonData: simplejson.NewFromAny(map[string]interface{}{}),
+			},
+			expConnStr: "server=localhost;database=database;user id=user;password=;",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			connStr, err := generateConnectionString(tc.dataSource)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expConnStr, connStr)
+		})
+	}
+}
+
+func initMSSQLTestDB(t *testing.T) *xorm.Engine {
+	t.Helper()
+
+	testDB := sqlutil.MSSQLTestDB()
+	x, err := xorm.NewEngine(testDB.DriverName, strings.Replace(testDB.ConnStr, "localhost",
+		serverIP, 1))
+	require.NoError(t, err)
 
 	x.DatabaseTZ = time.UTC
 	x.TZLocation = time.UTC

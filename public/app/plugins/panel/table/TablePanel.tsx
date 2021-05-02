@@ -1,42 +1,35 @@
 import React, { Component } from 'react';
 
-import { Table, Select } from '@grafana/ui';
-import { FieldMatcherID, PanelProps, DataFrame, SelectableValue } from '@grafana/data';
-import { Options } from './types';
-import { css } from 'emotion';
+import { Select, Table } from '@grafana/ui';
+import { DataFrame, FieldMatcherID, getFrameDisplayName, PanelProps, SelectableValue } from '@grafana/data';
+import { PanelOptions } from './models.gen';
+import { css } from '@emotion/css';
 import { config } from 'app/core/config';
+import { FilterItem, TableSortByFieldState } from '@grafana/ui/src/components/Table/types';
+import { dispatch } from '../../../store/store';
+import { applyFilterFromTable } from '../../../features/variables/adhoc/actions';
+import { getDashboardSrv } from '../../../features/dashboard/services/DashboardSrv';
 
-interface Props extends PanelProps<Options> {}
+interface Props extends PanelProps<PanelOptions> {}
 
 export class TablePanel extends Component<Props> {
   constructor(props: Props) {
     super(props);
   }
 
-  onColumnResize = (fieldIndex: number, width: number) => {
-    const { fieldConfig, data } = this.props;
+  onColumnResize = (fieldDisplayName: string, width: number) => {
+    const { fieldConfig } = this.props;
     const { overrides } = fieldConfig;
-    const frame = data.series[this.getCurrentFrameIndex()];
 
-    if (!frame) {
-      return;
-    }
-
-    const field = frame.fields[fieldIndex];
-    if (!field) {
-      return;
-    }
-
-    const fieldName = field.name;
     const matcherId = FieldMatcherID.byName;
     const propId = 'custom.width';
 
     // look for existing override
-    const override = overrides.find(o => o.matcher.id === matcherId && o.matcher.options === fieldName);
+    const override = overrides.find((o) => o.matcher.id === matcherId && o.matcher.options === fieldDisplayName);
 
     if (override) {
       // look for existing property
-      const property = override.properties.find(prop => prop.id === propId);
+      const property = override.properties.find((prop) => prop.id === propId);
       if (property) {
         property.value = width;
       } else {
@@ -44,7 +37,7 @@ export class TablePanel extends Component<Props> {
       }
     } else {
       overrides.push({
-        matcher: { id: matcherId, options: fieldName },
+        matcher: { id: matcherId, options: fieldDisplayName },
         properties: [{ id: propId, value: width }],
       });
     }
@@ -52,6 +45,13 @@ export class TablePanel extends Component<Props> {
     this.props.onFieldConfigChange({
       ...fieldConfig,
       overrides,
+    });
+  };
+
+  onSortByChange = (sortBy: TableSortByFieldState[]) => {
+    this.props.onOptionsChange({
+      ...this.props.options,
+      sortBy,
     });
   };
 
@@ -65,6 +65,18 @@ export class TablePanel extends Component<Props> {
     this.forceUpdate();
   };
 
+  onCellFilterAdded = (filter: FilterItem) => {
+    const { key, value, operator } = filter;
+    const panelModel = getDashboardSrv().getCurrent()?.getPanelById(this.props.id);
+    const datasource = panelModel?.datasource;
+
+    if (!datasource) {
+      return;
+    }
+
+    dispatch(applyFilterFromTable({ datasource, key, operator, value }));
+  };
+
   renderTable(frame: DataFrame, width: number, height: number) {
     const { options } = this.props;
 
@@ -75,7 +87,10 @@ export class TablePanel extends Component<Props> {
         data={frame}
         noHeader={!options.showHeader}
         resizable={true}
+        initialSortBy={options.sortBy}
+        onSortByChange={this.onSortByChange}
         onColumnResize={this.onColumnResize}
+        onCellFilterAdded={this.onCellFilterAdded}
       />
     );
   }
@@ -90,8 +105,9 @@ export class TablePanel extends Component<Props> {
     const { data, height, width } = this.props;
 
     const count = data.series?.length;
+    const hasFields = data.series[0]?.fields.length;
 
-    if (!count || count < 1) {
+    if (!count || !hasFields) {
       return <div>No data</div>;
     }
 
@@ -101,7 +117,7 @@ export class TablePanel extends Component<Props> {
       const currentIndex = this.getCurrentFrameIndex();
       const names = data.series.map((frame, index) => {
         return {
-          label: `${frame.name ?? 'Series'}`,
+          label: getFrameDisplayName(frame),
           value: index,
         };
       });

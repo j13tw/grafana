@@ -3,7 +3,6 @@ package search
 import (
 	"sort"
 
-	"github.com/grafana/grafana/pkg/services/sqlstore/searchstore"
 	"github.com/grafana/grafana/pkg/setting"
 
 	"github.com/grafana/grafana/pkg/bus"
@@ -12,11 +11,7 @@ import (
 )
 
 func init() {
-	registry.Register(&registry.Descriptor{
-		Name:         "SearchService",
-		Instance:     &SearchService{},
-		InitPriority: 20,
-	})
+	registry.RegisterService(&SearchService{})
 }
 
 type Query struct {
@@ -48,8 +43,9 @@ type FindPersistedDashboardsQuery struct {
 	Limit        int64
 	Page         int64
 	Permission   models.PermissionType
+	Sort         SortOption
 
-	SortBy searchstore.FilterOrderBy
+	Filters []interface{}
 
 	Result HitList
 }
@@ -64,8 +60,8 @@ type SearchService struct {
 func (s *SearchService) Init() error {
 	s.Bus.AddHandler(s.searchHandler)
 	s.sortOptions = map[string]SortOption{
-		sortAlphaAsc.Name:  sortAlphaAsc,
-		sortAlphaDesc.Name: sortAlphaDesc,
+		SortAlphaAsc.Name:  SortAlphaAsc,
+		SortAlphaDesc.Name: SortAlphaDesc,
 	}
 
 	return nil
@@ -86,7 +82,7 @@ func (s *SearchService) searchHandler(query *Query) error {
 	}
 
 	if sortOpt, exists := s.sortOptions[query.Sort]; exists {
-		dashboardQuery.SortBy = sortOpt.Filter
+		dashboardQuery.Sort = sortOpt
 	}
 
 	if err := bus.Dispatch(&dashboardQuery); err != nil {
@@ -130,7 +126,7 @@ func setStarredDashboards(userID int64, hits []*Hit) error {
 	}
 
 	for _, dashboard := range hits {
-		if _, ok := query.Result[dashboard.Id]; ok {
+		if _, ok := query.Result[dashboard.ID]; ok {
 			dashboard.IsStarred = true
 		}
 	}

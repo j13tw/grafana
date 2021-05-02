@@ -1,40 +1,60 @@
 import React, { useState } from 'react';
 import { zip, fromPairs } from 'lodash';
 
-import { storiesOf } from '@storybook/react';
 import { withCenteredStory } from '../../../../utils/storybook/withCenteredStory';
 import { Input } from './Input';
-import { text, select } from '@storybook/addon-knobs';
+import { Meta, Story } from '@storybook/react';
 import { EventsWithValidation } from '../../../../utils';
 
-const getKnobs = () => {
-  return {
-    validation: text('Validation regex (will do a partial match if you do not anchor it)', ''),
-    validationErrorMessage: text('Validation error message', 'Input not valid'),
-    validationEvent: select(
-      'Validation event',
-      fromPairs(zip(Object.keys(EventsWithValidation), Object.values(EventsWithValidation))),
-      EventsWithValidation.onBlur
-    ),
-  };
-};
+export default {
+  title: 'Forms/Legacy/Input',
+  component: Input,
+  decorators: [withCenteredStory],
+  parameters: {
+    knobs: {
+      disable: true,
+    },
+    controls: {
+      exclude: ['inputRef'],
+    },
+  },
+  argTypes: {
+    validationEvents: {
+      control: {
+        type: 'select',
+        options: fromPairs(zip(Object.keys(EventsWithValidation), Object.values(EventsWithValidation))),
+      },
+    },
+    validation: { name: 'Validation regex (will do a partial match if you do not anchor it)' },
+  },
+} as Meta;
 
-const Wrapper = () => {
-  const { validation, validationErrorMessage, validationEvent } = getKnobs();
+const Wrapper: Story = (args) => {
   const [value, setValue] = useState('');
   const validations = {
-    [validationEvent]: [
+    [args.validationEvents]: [
       {
         rule: (value: string) => {
-          return !!value.match(validation);
+          return !!value.match(args.validation);
         },
-        errorMessage: validationErrorMessage,
+        errorMessage: args.validationErrorMessage,
       },
     ],
   };
-  return <Input value={value} onChange={e => setValue(e.currentTarget.value)} validationEvents={validations} />;
+  return (
+    <Input
+      value={value}
+      onChange={(e) => setValue(e.currentTarget.value)}
+      validationEvents={validations}
+      hideErrorMessage={args.hideErrorMessage}
+    />
+  );
 };
 
-const story = storiesOf('Forms/Legacy/Input', module);
-story.addDecorator(withCenteredStory);
-story.add('input', () => <Wrapper />);
+export const Basic = Wrapper.bind({});
+Basic.args = {
+  validation: '',
+  validationErrorMessage: 'Input not valid',
+  validationEvents: EventsWithValidation.onBlur,
+  hideErrorMessage: false,
+};

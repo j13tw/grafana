@@ -1,5 +1,5 @@
 import React, { FC } from 'react';
-import { css, cx } from 'emotion';
+import { css, cx } from '@emotion/css';
 import { useTheme, stylesFactory } from '@grafana/ui';
 import { GrafanaTheme } from '@grafana/data';
 
@@ -7,7 +7,7 @@ import { OptionProps } from 'react-select/src/components/Option';
 import { TagBadge } from './TagBadge';
 
 // https://github.com/JedWatson/react-select/issues/3038
-interface ExtendedOptionProps extends OptionProps<any> {
+interface ExtendedOptionProps extends OptionProps<any, any> {
   data: any;
 }
 
@@ -28,9 +28,6 @@ const getStyles = stylesFactory((theme: GrafanaTheme) => {
   return {
     option: css`
       padding: 8px;
-      display: flex;
-      align-items: center;
-      flex-direction: row;
       white-space: nowrap;
       cursor: pointer;
       border-left: 2px solid transparent;

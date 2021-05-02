@@ -1,40 +1,53 @@
 import React, { useState } from 'react';
-
-import { storiesOf } from '@storybook/react';
+import { Story, Meta } from '@storybook/react';
 import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
-import { ClipboardButton } from './ClipboardButton';
+import { ClipboardButton, Props } from './ClipboardButton';
 import { Input } from '../Forms/Legacy/Input/Input';
-import { text } from '@storybook/addon-knobs';
+import mdx from './ClipboardButton.mdx';
 
-const getKnobs = () => {
-  return {
-    buttonText: text('Button text', 'Copy to clipboard'),
-    inputText: text('Input', 'go run build.go -goos linux -pkg-arch amd64 ${OPT} package-only'),
-    clipboardCopyMessage: text('Copy message', 'Value copied to clipboard'),
-  };
-};
+export default {
+  title: 'Buttons/ClipboardButton',
+  component: ClipboardButton,
+  decorators: [withCenteredStory],
+  parameters: {
+    docs: {
+      page: mdx,
+    },
+    knobs: {
+      disable: true,
+    },
+    controls: {
+      exclude: ['size', 'variant', 'icon', 'className', 'fullWidth'],
+    },
+  },
+} as Meta;
 
-const Wrapper = () => {
-  const { inputText, buttonText } = getKnobs();
+interface StoryProps extends Partial<Props> {
+  inputText: string;
+  buttonText: string;
+}
+
+const Wrapper: Story<StoryProps> = (args) => {
   const [copyMessage, setCopyMessage] = useState('');
-
+  const clipboardCopyMessage = 'Value copied to clipboard';
   return (
     <div style={{ width: '100%' }}>
       <div style={{ display: 'flex', width: '100%', marginBottom: '1em' }}>
         <ClipboardButton
           variant="secondary"
-          getText={() => getKnobs().inputText}
-          onClipboardCopy={() => setCopyMessage(getKnobs().clipboardCopyMessage)}
+          getText={() => args.inputText}
+          onClipboardCopy={() => setCopyMessage(clipboardCopyMessage)}
         >
-          {buttonText}
+          {args.buttonText}
         </ClipboardButton>
-        <Input value={inputText} onChange={() => {}} />
+        <Input value={args.inputText} onChange={() => {}} />
       </div>
       <span>{copyMessage}</span>
     </div>
   );
 };
-
-const story = storiesOf('Buttons/ClipboardButton', module);
-story.addDecorator(withCenteredStory);
-story.add('copy to clipboard', () => <Wrapper />);
+export const CopyToClipboard = Wrapper.bind({});
+CopyToClipboard.args = {
+  inputText: 'go run build.go -goos linux -pkg-arch amd64 ${OPT} package-only',
+  buttonText: 'Copy to clipboard',
+};

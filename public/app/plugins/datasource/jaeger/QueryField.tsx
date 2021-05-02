@@ -1,9 +1,12 @@
+import { ExploreQueryFieldProps } from '@grafana/data';
+import { selectors } from '@grafana/e2e-selectors';
+import { ButtonCascader, CascaderOption } from '@grafana/ui';
 import React from 'react';
 import { JaegerDatasource, JaegerQuery } from './datasource';
-import { ButtonCascader, CascaderOption } from '@grafana/ui';
-
-import { AppEvents, ExploreQueryFieldProps } from '@grafana/data';
-import { appEvents } from '../../../core/core';
+import { Span, TraceResponse } from './types';
+import { dispatch } from 'app/store/store';
+import { notifyApp } from 'app/core/actions';
+import { createErrorNotification } from 'app/core/copy/appNotification';
 
 const ALL_OPERATIONS_KEY = '__ALL__';
 const NO_TRACES_KEY = '__NO_TRACES__';
@@ -13,17 +16,20 @@ interface State {
   serviceOptions: CascaderOption[];
 }
 
-function getLabelFromTrace(trace: any): string {
-  // TODO: seems like the spans are not ordered so this may not be actually a root span
-  const firstSpan = trace.spans && trace.spans[0];
-  if (firstSpan) {
-    return `${firstSpan.operationName} [${firstSpan.duration} ms]`;
+function findRootSpan(spans: Span[]): Span | undefined {
+  return spans.find((s) => !s.references?.length);
+}
+
+function getLabelFromTrace(trace: TraceResponse): string {
+  const rootSpan = findRootSpan(trace.spans);
+  if (rootSpan) {
+    return `${rootSpan.operationName} [${rootSpan.duration / 1000} ms]`;
   }
   return trace.traceID;
 }
 
 export class JaegerQueryField extends React.PureComponent<Props, State> {
-  private _isMounted: boolean;
+  private _isMounted = false;
 
   constructor(props: Props, context: React.Context<any>) {
     super(props, context);
@@ -52,7 +58,7 @@ export class JaegerQueryField extends React.PureComponent<Props, State> {
       }
 
       if (services) {
-        const serviceOptions: CascaderOption[] = services.sort().map(service => ({
+        const serviceOptions: CascaderOption[] = services.sort().map((service) => ({
           label: service,
           value: service,
           isLeaf: false,
@@ -60,7 +66,7 @@ export class JaegerQueryField extends React.PureComponent<Props, State> {
         this.setState({ serviceOptions });
       }
     } catch (error) {
-      appEvents.emit(AppEvents.alertError, ['Failed to load services from Jaeger', error]);
+      dispatch(notifyApp(createErrorNotification('Failed to load services from Jaeger', error)));
     }
   }
 
@@ -79,14 +85,14 @@ export class JaegerQueryField extends React.PureComponent<Props, State> {
       };
       const operationOptions: CascaderOption[] = [
         allOperationsOption,
-        ...operations.sort().map(operation => ({
+        ...operations.sort().map((operation) => ({
           label: operation,
           value: operation,
           isLeaf: false,
         })),
       ];
-      this.setState(state => {
-        const serviceOptions = state.serviceOptions.map(serviceOption => {
+      this.setState((state) => {
+        const serviceOptions = state.serviceOptions.map((serviceOption) => {
           if (serviceOption.value === service) {
             return {
               ...serviceOption,
@@ -106,7 +112,7 @@ export class JaegerQueryField extends React.PureComponent<Props, State> {
         return;
       }
 
-      let traceOptions: CascaderOption[] = traces.map(trace => ({
+      let traceOptions: CascaderOption[] = traces.map((trace) => ({
         label: getLabelFromTrace(trace),
         value: trace.traceID,
       }));
@@ -118,11 +124,11 @@ export class JaegerQueryField extends React.PureComponent<Props, State> {
           },
         ];
       }
-      this.setState(state => {
+      this.setState((state) => {
         // Place new traces into the correct service/operation sub-tree
-        const serviceOptions = state.serviceOptions.map(serviceOption => {
-          if (serviceOption.value === service) {
-            const operationOptions = serviceOption.children.map(operationOption => {
+        const serviceOptions = state.serviceOptions.map((serviceOption) => {
+          if (serviceOption.value === service && serviceOption.children) {
+            const operationOptions = serviceOption.children.map((operationOption) => {
               if (operationOption.value === operationValue) {
                 return {
                   ...operationOption,
@@ -145,11 +151,11 @@ export class JaegerQueryField extends React.PureComponent<Props, State> {
 
   findOperations = async (service: string) => {
     const { datasource } = this.props;
-    const url = `/api/services/${service}/operations`;
+    const url = `/api/services/${encodeURIComponent(service)}/operations`;
     try {
       return await datasource.metadataRequest(url);
     } catch (error) {
-      appEvents.emit(AppEvents.alertError, ['Failed to load operations from Jaeger', error]);
+      dispatch(notifyApp(createErrorNotification('Failed to load operations from Jaeger', error)));
     }
     return [];
   };
@@ -172,7 +178,7 @@ export class JaegerQueryField extends React.PureComponent<Props, State> {
     try {
       return await datasource.metadataRequest(url, traceSearch);
     } catch (error) {
-      appEvents.emit(AppEvents.alertError, ['Failed to load traces from Jaeger', error]);
+      dispatch(notifyApp(createErrorNotification('Failed to load traces from Jaeger', error)));
     }
     return [];
   };
@@ -200,12 +206,12 @@ export class JaegerQueryField extends React.PureComponent<Props, State> {
             </ButtonCascader>
           </div>
           <div className="gf-form gf-form--grow flex-shrink-1">
-            <div className={'slate-query-field__wrapper'}>
-              <div className="slate-query-field">
+            <div className="slate-query-field__wrapper">
+              <div className="slate-query-field" aria-label={selectors.components.QueryField.container}>
                 <input
                   style={{ width: '100%' }}
                   value={query.query || ''}
-                  onChange={e =>
+                  onChange={(e) =>
                     onChange({
                       ...query,
                       query: e.currentTarget.value,
